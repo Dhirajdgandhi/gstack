@@ -80,10 +80,10 @@ if [ "$gbrain_on_path" = "true" ]; then
   fi
 fi
 
-# --- gstack-brain-sync state (memory sync, separate from gbrain itself) ---
+# --- artifacts sync state (renamed from gbrain_sync_mode in v1.27.0.0) ---
 gstack_brain_sync_mode="off"
 if [ -x "$CONFIG_BIN" ]; then
-  mode=$("$CONFIG_BIN" get gbrain_sync_mode 2>/dev/null || true)
+  mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || true)
   case "$mode" in
     off|artifacts-only|full) gstack_brain_sync_mode="$mode" ;;
   esac

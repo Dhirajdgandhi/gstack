@@ -172,14 +172,16 @@ fi
 # ---- canonicalize to HTTPS form ----
 # We store HTTPS in ~/.gstack-artifacts-remote.txt (codex Finding #10:
 # canonical form, derive SSH at push time via gstack-artifacts-url --to ssh).
+# Unrecognized forms (local bare paths, file:// URLs, self-hosted gitea, etc.)
+# pass through verbatim so unusual remotes still work.
 CANONICAL_HTTPS=$("$URL_BIN" --to https "$REMOTE_URL" 2>/dev/null || echo "")
 if [ -z "$CANONICAL_HTTPS" ]; then
-  echo "Failed to canonicalize remote URL: $REMOTE_URL" >&2
-  exit 1
+  CANONICAL_HTTPS="$REMOTE_URL"
 fi
 
 # Use SSH for git push (more reliable for repeated pushes than HTTPS+token).
-PUSH_URL=$("$URL_BIN" --to ssh "$CANONICAL_HTTPS")
+# Fall back to the canonical input if derivation fails.
+PUSH_URL=$("$URL_BIN" --to ssh "$CANONICAL_HTTPS" 2>/dev/null || echo "$CANONICAL_HTTPS")
 
 # ---- verify push URL is reachable ----
 echo "Verifying remote connectivity: $PUSH_URL"
