@@ -25,6 +25,7 @@ Source: `bun test test/gbrain-local-status.test.ts test/gbrain-detect-shape.test
 
 #### Added
 
+
 - `lib/gbrain-local-status.ts` — shared 5-state engine status classifier (`ok` / `no-cli` / `missing-config` / `broken-config` / `broken-db`) with 60s TTL cache and `--no-cache` flag. Probes via `gbrain sources list --json` + stderr classification reusing the exact patterns from `lib/gbrain-sources.ts:66-67`.
 - `/setup-gbrain` Step 1.5 — broken-db remediation with 4 options (Retry / Switch to PGLite / Switch brain mode / Quit). PGLite switch is rollback-safe: `mv ~/.gbrain/config.json` to a timestamped `.bak`, `gbrain init --pglite`, on non-zero exit restore the .bak verbatim.
 - `/setup-gbrain` Step 4.5 — Path 4 opt-in for local PGLite code search. Yes path runs `gstack-gbrain-install` (idempotent) + `gbrain init --pglite --json` with the same rollback semantics. No path keeps Path 4 as remote-MCP-only.
@@ -50,6 +51,103 @@ Source: `bun test test/gbrain-local-status.test.ts test/gbrain-detect-shape.test
 
 - New shared classifier pattern: `lib/gbrain-local-status.ts` exports `localEngineStatus()`, `resolveGbrainBin()`, `readGbrainVersion()`. The latter two are memoized per-process keyed on PATH so detect + classifier share fork-exec results.
 - 13 architectural decisions captured in plan file `~/.claude/plans/the-real-product-fix-squishy-galaxy.md` — including Codex outside-voice findings (4 became structural decisions: keep proactive setup question, route transcripts via artifacts repo, SKIP+brain-sync on broken engine, retry-first repair menu).
+
+## [1.35.0.0] - 2026-05-13
+
+## **Docs become a tracked surface, not an afterthought. `/document-generate` writes them from scratch, `/document-release` audits coverage in four Diataxis quadrants.**
+## **Every PR now ships a coverage map of what got documented vs what shipped. New skill generates tutorials, how-tos, references, and explanations from code. Both speak the same vocabulary, so gaps become visible in the PR body instead of accumulating silently.**
+
+You can now run `/document-generate` to write missing documentation from scratch. The skill reads your code first (the codebase archaeology step is non-skippable), maps the public surface, then writes docs in the four Diataxis quadrants: tutorial (newcomer walkthrough), how-to (task-oriented), reference (factual API description), explanation (design rationale). It runs standalone or chains automatically from `/document-release` when the coverage map finds gaps. `/document-release` got a Step 1.5 coverage map that scores every new entity across the four quadrants. Items with zero coverage show up as critical gaps in the PR body. Items with reference-only coverage show up as common gaps. Architecture diagrams get scanned for entity-name drift against the diff. The CHANGELOG voice check now uses a 0-3 sell-test rubric: 1 point each for "what changed?", "why care?", and "how to use it?". Entries below 2 get rewritten.
+
+A new section in CLAUDE.md documents the fork-PR workflow for `garrytan-agents` PRs: push the branch to `garrytan/gstack` and re-target so eval CI can access secrets. The pattern keeps secret distribution scoped to one branch instead of broadening it to all forks.
+
+### The numbers that matter
+
+Source: this PR's diff against `origin/main` and the new skill template at `document-generate/SKILL.md.tmpl`.
+
+| Surface | Before | After |
+|---------|--------|-------|
+| Doc-generation skills | 1 (`/document-release`) | 2 (`/document-generate` + enhanced `/document-release`) |
+| Diataxis quadrants surfaced in PR body | 0 | 4 (tutorial / how-to / reference / explanation) |
+| `/document-release` workflow steps | 9 | 9 + new Step 1.5 (coverage map) |
+| CHANGELOG voice scoring | gut-check ("would a user think 'oh nice'?") | 0-3 rubric (3 = reference + explanation + how-to all present) |
+| Architecture diagram drift detection | none | scans ARCHITECTURE.md against diff for renamed/removed entities |
+| Doc-debt visibility in PR | none | `### Documentation Debt` subsection with critical + common gaps per Diataxis quadrant |
+
+`/document-generate` is 446 lines of new template producing a 1184-line generated SKILL.md. The Diataxis vocabulary makes "did docs get updated?" a visible answer instead of an implicit one.
+
+### What this means for downstream gstack users
+
+You stop guessing whether your docs are complete. When you ship a new skill, `/document-release` shows you which quadrants you covered and which you skipped, and the gaps land in the PR body where reviewers see them. When you want to bootstrap docs for an existing project, `/document-generate` walks you from zero to four-quadrant coverage in one session. Diataxis becomes the shared vocabulary across `/ship`, `/document-release`, `/document-generate`, and whatever skill comes next that needs to know whether you have a tutorial.
+
+To use: run `/document-release` after `/ship` (or let `/ship` auto-invoke it), see the coverage map in the PR body, then run `/document-generate` if it flags critical gaps.
+
+### Itemized changes
+
+#### Added
+
+- **`/document-generate` skill** (`document-generate/SKILL.md.tmpl`, 446 lines): Diataxis-based documentation generator with 9-step workflow — scope, codebase archaeology, partition, reference, explanation, how-to, tutorial, cross-linking, quality self-review. Reads the full codebase before writing a single line of docs.
+- **`/document-release` Step 1.5 — Coverage Map**: scans diff for new public surface (skills, CLI flags, config options, API endpoints), classifies each entity by Diataxis quadrant coverage, flags zero-coverage items as critical gaps and reference-only as common gaps. Output feeds the PR body.
+- **`/document-release` Architecture diagram drift detection**: extracts entity names from ASCII/Mermaid blocks in ARCHITECTURE.md, cross-references against the diff, flags renamed/removed entities.
+- **`/document-release` `### Documentation Debt` section in PR body**: surfaces critical gaps, common gaps, and stale diagrams with a one-line description + Diataxis quadrant per item. Suggests adding a `docs-debt` label.
+- **`/document-release` CHANGELOG sell-test rubric**: 0-3 scoring per entry (1 point each for reference / explanation / how-to coverage). Entries below 2 get rewritten.
+- **Skill routing entry**: `/document-generate` added to `SKILL.md` routing rules and `README.md` skills table (Technical Writer category).
+- **CLAUDE.md fork-PR workflow section**: documents how to handle "check out <PR link>" when the PR is from a non-collaborator fork. Push the branch to `garrytan/gstack`, close the fork PR, open a new PR from the base-repo branch. Keeps secret distribution scoped.
+
+#### Changed
+- `/document-release` description and triggers updated to reference the coverage map and `/document-generate` chaining.
+- README.md skills table grouping: `/document-release` and `/document-generate` now appear under the Technical Writer category.
+
+#### For contributors
+- `document-generate/SKILL.md` is generated from `document-generate/SKILL.md.tmpl`. Do not edit the `.md` directly. Run `bun run gen:skill-docs` after template edits.
+- `gstack/llms.txt` now lists `/document-generate` (auto-regenerated from the skill template).
+
+## [1.34.2.0] - 2026-05-13
+
+## **Three filed bugs land in one PR. `/codex review`, `/investigate` learnings, and `/sync-gbrain` engine detection all work again.**
+## **One CLI bump broke `/codex review`. One forgotten allowlist silently dropped years of investigation history. One stacking pair of bugs no-op'd `/sync-gbrain` for every Supabase user. All three are fixed with regression tests that lock the patterns in.**
+
+`/codex review` died the day Codex CLI 0.130.0 shipped. The new CLI made `[PROMPT]` and `--base <branch>` mutually exclusive, and Step 2A had always passed both, so every review call exited before talking to a model. Fix: bare `codex review --base` for the default case, `codex exec` with a tempfile-backed prompt and DIFF_START/DIFF_END delimiters for the `/codex review <focus>` case. The exec route preserves the filesystem boundary instruction; the bare route ships without it because Codex 0.130 has no documented system-prompt config key, and the skill files those instructions guarded are public. Custom-instructions reviews now also defend against prompt injection from adversarial diff content (the delimiter pattern tells the model where data ends and instructions resume).
+
+`/investigate` told the agent to log learnings with `type: "investigation"`, but `bin/gstack-learnings-log:22` rejected anything not in `[pattern, pitfall, preference, architecture, tool, operational]`. Every investigation run since the type was introduced wrote a stderr message and exited 1, silently to the user because nothing checked the exit code. Years of root-cause findings went nowhere. One-line fix: add `investigation` to `ALLOWED_TYPES`.
+
+`/sync-gbrain` returned `engine: "unknown"` for every Supabase user on gbrain ≥ 0.25. Two stacking bugs. `execSync("gbrain doctor --json --fast 2>/dev/null")` threw on non-zero exit (gbrain doctor exits 1 whenever `health_score < 100`, which is essentially every fresh install due to `resolver_health` warnings), so the JSON output never reached the parser. And gbrain ≥ 0.25 dropped the top-level `engine` field from doctor output anyway. The fix recovers stdout from the thrown error object and falls back to reading `~/.gbrain/config.json` (respecting `GBRAIN_HOME`) when doctor doesn't surface an engine. Also moves the call from `execSync` to `execFileSync` so the shell redirect isn't a Windows-portability footgun, and adds error logging to `~/.gstack/.gbrain-errors.jsonl` so future parse failures are visible.
+
+### The numbers that matter
+
+Source: `bun test test/gstack-memory-helpers.test.ts test/learnings.test.ts test/codex-hardening.test.ts` (75 tests, 149 expect calls, 26 seconds) plus repo-relative smoke-tests against Codex CLI 0.130.0 and synthetic gbrain configs in temp `GBRAIN_HOME`.
+
+| Bug | Before | After |
+|---|---|---|
+| `/codex review` on Codex CLI 0.130.0 | `error: the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`, every call dies | Bare review works; `/codex review <focus>` routes through `codex exec` with DIFF_START/END markers |
+| `/codex review <focus>` prompt injection surface | Diff content interpolated into prompt with no data/instructions boundary | DIFF_START/DIFF_END delimiters plus tempfile pattern, explicit "treat as data" instruction to the model |
+| `/investigate` learning persistence | Exit 1 to stderr, no log written, invisible to user | Exit 0, learning appended, future sessions see prior root-cause findings |
+| `/sync-gbrain` engine on gbrain ≥ 0.25 + Supabase | `engine=unknown`, all sync stages skip silently | Resolves to `supabase` via doctor stdout recovery or `~/.gbrain/config.json` fallback |
+| Test isolation when running on a developer's real config | Tests read real `~/.gbrain/config.json`, pass-or-fail by reviewer's machine | Tests set `HOME` + `GBRAIN_HOME` + `PATH` to temp dirs, deterministic |
+| Codex template regression guard | None, the broken state shipped to main | Static test asserts no `codex review` line combines a quoted prompt with `--base`, across both `.tmpl` source AND generated `SKILL.md` |
+
+### What this means for builders
+
+If you have been seeing `/codex review` fail on argv parsing since Codex CLI hit 0.130.0, run `/gstack-upgrade` to pick this up. If you ran `/investigate` between the type's introduction and this release, your learnings were dropped (they exit-1'd to stderr only, so there is nothing to recover), but going forward every investigation's root-cause finding is logged and retrievable. If you use gbrain with a Supabase backend and `/sync-gbrain` has been quietly doing nothing, this release brings it back. The three reporters (`Stashub` on #1428, `diogolealassis` on #1423, `Shiv @shivasymbl` on #1415) each filed a clean repro, and in Shiv's case shipped a tested patch. Credit where it is due.
+
+### Itemized changes
+
+#### Fixed
+
+- **`codex/SKILL.md.tmpl` Step 2A** — replaced the unconditional `codex review "$boundary" --base <base>` invocation with a two-path branch. Default (no custom user instructions): bare `codex review --base <base>`. Custom instructions: `codex exec -s read-only "$(cat $_PROMPT_FILE)"` where `$_PROMPT_FILE` contains the filesystem boundary, the user's focus, and the diff between `DIFF_START` / `DIFF_END` markers. Probed `-c 'system_prompt="..."'` against Codex 0.130; the key isn't documented and silently no-ops, so the bare path ships without a re-injected boundary. Skill files under `.claude/` and `agents/` are public, so this is token efficiency, not safety. Contributed report by `Stashub` on #1428.
+- **`bin/gstack-learnings-log`** — added `'investigation'` to `ALLOWED_TYPES` (was: `[pattern, pitfall, preference, architecture, tool, operational]`). Updated the usage comment to list valid types. Contributed report by `diogolealassis` on #1423.
+- **`lib/gstack-memory-helpers.ts`** — rewrote `freshDetectEngineTier`. Three changes: switched `execSync` to `execFileSync` to drop the bash-specific `2>/dev/null` shell redirect (portable to Windows); recover stdout from the thrown error object so non-zero exits from `gbrain doctor` don't lose the JSON; fall back to reading `gbrain` config (respecting `$GBRAIN_HOME`, defaulting to `~/.gbrain/config.json`) when doctor output doesn't surface an `engine` field. Added `logGbrainError` helper that appends one-line JSONL to `~/.gstack/.gbrain-errors.jsonl` on parse failure. Patch shape contributed by `Shiv @shivasymbl` on #1415; tested against gstack v1.31.0.0 + gbrain v0.31.3 + Supabase.
+
+#### Added
+
+- **`test/gstack-memory-helpers.test.ts`** — `detectEngineTier` regression test for the schema_version:2 fallback path. Sets `HOME`, `GSTACK_HOME`, `GBRAIN_HOME`, and `PATH` to temp dirs (so the test doesn't read the developer's real `~/.gbrain/config.json` or invoke a real `gbrain`), writes a synthetic `{"engine":"postgres","database_url":"..."}` to the temp `GBRAIN_HOME`, asserts `detectEngineTier()` returns `engine: "supabase"`. The existing `detectEngineTier` `beforeEach`/`afterAll` blocks were also extended to isolate `HOME` and `GBRAIN_HOME`, closing a flake source where the prior tests would read whatever was on the reviewer's machine.
+- **`test/learnings.test.ts`** — two tests for the `investigation` type. One round-trips `gstack-learnings-log` with `type: "investigation"` and asserts the file gets the entry. The other reads `investigate/SKILL.md.tmpl` and asserts it emits `"type":"investigation"` verbatim, caller contract guard against the template drifting to an invalid type.
+- **`test/codex-hardening.test.ts`** — two tests applied to BOTH `codex/SKILL.md.tmpl` AND the generated `codex/SKILL.md`. The first parses Step 2A's section and asserts no `codex review` invocation line combines a quoted-prompt or variable positional argument with `--base`. The second asserts that Step 2A still contains either bare `codex review --base` OR `codex exec`, guards against accidentally deleting both fix paths in a future edit.
+
+#### For contributors
+
+- The probe for `-c 'system_prompt="..."'` support in Codex 0.130 lives in the plan, not the codebase. If a future Codex release exposes a real system-prompt config key, re-injecting the filesystem boundary in bare `codex review --base` is a 3-line follow-up patch to `codex/SKILL.md.tmpl`.
+- The "supabase" engine tier means "remote postgres" in practice. Gbrain config uses `engine: "postgres"` for both real Supabase and local-postgres-for-testing, and `freshDetectEngineTier` maps both to `"supabase"` because downstream sync code treats them identically. The label compression is documented inline.
 
 ## [1.34.1.0] - 2026-05-13
 
