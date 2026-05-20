@@ -842,10 +842,27 @@ fi
 
 ## Phase 2: Bootstrap the device bridge
 
-1. Add the `DebugBridge` SPM target (Debug-config-only via
-   `.when(configuration: .debug)`).
-2. Add `DebugBridgeManager.shared.start()` to the app's `@main` entry, gated
-   on `#if DEBUG`.
+1. Add the `DebugBridge` SPM dependency to the app's `Package.swift`. The package
+   ships three Debug-config-only library products:
+   - `DebugBridgeCore` (Swift, cross-platform) — StateServer + bridge protocols.
+   - `DebugBridgeTouch` (Objective-C, iOS-only) — KIF-derived in-process touch
+     synthesis with iOS 18+ `_UIHitTestContext` SwiftUI hit-testing.
+   - `DebugBridgeUI` (Swift, iOS-only) — Screenshot / Elements / Mutation
+     bridge implementations.
+   The app target depends on `DebugBridgeUI` with `.when(configuration: .debug)`
+   (transitively pulls in Core + Touch). Release builds refuse to link these
+   targets.
+2. Wire the bridges from the `@main` App init, gated on `#if DEBUG`:
+   ```swift
+   #if DEBUG
+   import DebugBridgeCore
+   StateServer.shared.start()
+   #if canImport(UIKit)
+   import DebugBridgeUI
+   DebugBridgeUIWiring.installAll()
+   #endif
+   #endif
+   ```
 3. Build + deploy to the device with `xcodebuild -scheme <SchemeName>
    -destination 'platform=iOS,id=<UDID>' build install`.
 4. Launch via `devicectl device process launch --device <UDID> --console <bundle-id>`.
