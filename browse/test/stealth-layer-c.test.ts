@@ -142,13 +142,18 @@ describe('buildGStackLaunchArgs — Pack 1 cmdline-switch construction', () => {
     }
   }
 
-  test('empty env produces empty arg list', () => {
+  test('empty env produces only the always-on prepare-stack-trace flag', () => {
     withEnv({}, () => {
-      expect(buildGStackLaunchArgs()).toEqual([]);
+      // The Pack 2 / B11 suppression flag is always emitted unless
+      // explicitly disabled via GSTACK_CDP_STEALTH=off. Six per-install
+      // flags fall through (nothing in env), so we expect just one.
+      expect(buildGStackLaunchArgs()).toEqual([
+        '--gstack-suppress-prepare-stack-trace',
+      ]);
     });
   });
 
-  test('all env values populated → all 6 switches emitted', () => {
+  test('all env values populated → all 7 switches emitted', () => {
     withEnv({
       GSTACK_GPU_VENDOR: 'Apple Inc.',
       GSTACK_GPU_RENDERER: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)',
@@ -164,7 +169,8 @@ describe('buildGStackLaunchArgs — Pack 1 cmdline-switch construction', () => {
       expect(args).toContain('--gstack-ua-model=Apple M4 Max');
       expect(args).toContain('--gstack-hw-concurrency=16');
       expect(args).toContain('--gstack-device-memory=8');
-      expect(args.length).toBe(6);
+      expect(args).toContain('--gstack-suppress-prepare-stack-trace');
+      expect(args.length).toBe(7);
     });
   });
 
@@ -189,7 +195,17 @@ describe('buildGStackLaunchArgs — Pack 1 cmdline-switch construction', () => {
   test('partial env: only set switches that have values', () => {
     withEnv({ GSTACK_HW_CONCURRENCY: '12' }, () => {
       const args = buildGStackLaunchArgs();
-      expect(args).toEqual(['--gstack-hw-concurrency=12']);
+      // expect hw + the always-on prepare-stack-trace suppression
+      expect(args).toContain('--gstack-hw-concurrency=12');
+      expect(args).toContain('--gstack-suppress-prepare-stack-trace');
+      expect(args.length).toBe(2);
+    });
+  });
+
+  test('GSTACK_CDP_STEALTH=off disables prepare-stack-trace suppression', () => {
+    withEnv({ GSTACK_CDP_STEALTH: 'off' }, () => {
+      const args = buildGStackLaunchArgs();
+      expect(args).not.toContain('--gstack-suppress-prepare-stack-trace');
     });
   });
 

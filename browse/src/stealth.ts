@@ -323,6 +323,16 @@ export function buildGStackLaunchArgs(): string[] {
   const memory = env.GSTACK_DEVICE_MEMORY;
   if (memory) args.push(`--gstack-device-memory=${memory}`);
 
+  // Pack 2 / B11: suppress user-defined Error.prepareStackTrace during
+  // V8 stack-trace formatting. Closes the Cloudflare Bot Management
+  // canary trick where a page sets prepareStackTrace and watches for
+  // it to fire during CDP serialization. Off by default — only set
+  // when the C++ patch is present (gbrowser builds), gstack hosts
+  // running stock Playwright Chromium leave it unset.
+  if (env.GSTACK_CDP_STEALTH !== 'off') {
+    args.push('--gstack-suppress-prepare-stack-trace');
+  }
+
   return args;
 }
 
