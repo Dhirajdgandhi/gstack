@@ -43,7 +43,8 @@ import { inspectElement, modifyStyle, resetModifications, getModificationHistory
 // Bun.spawn used instead of child_process.spawn (compiled bun binaries
 // fail posix_spawn on all executables including /bin/bash)
 import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
-import { readAgentRecord, killAgentByRecord, clearAgentRecord, agentRecordPath } from './terminal-agent-control';
+import { readAgentRecord, killAgentByRecord, clearAgentRecord, agentRecordPath, spawnTerminalAgent } from './terminal-agent-control';
+import { isProcessAlive } from './error-handling';
 import { sanitizeBody, stripLoneSurrogateEscapes } from './sanitize';
 import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridge';
 import { parseProxyConfig, toUpstreamConfig, ProxyConfigError } from './proxy-config';
@@ -1306,6 +1307,84 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // premise even under malformed cfg.
   const ownsTerminalAgent = cfg.ownsTerminalAgent === false ? false : true;
 
+  // ─── Terminal-Agent Watchdog (v1.44+) ─────────────────────────────
+  //
+  // The terminal-agent process can die independently of the server: SIGKILL
+  // from the OS OOM killer, an uncaught exception under load, an external
+  // `pkill` from a sibling debugging session. Pre-v1.44 the sidebar would
+  // see the broken connection and stay broken until the user reloaded.
+  // Now: 60s ticker checks the recorded agent PID, respawns via the shared
+  // spawnTerminalAgent helper if dead.
+  //
+  // Identity-based — uses readAgentRecord + isProcessAlive, NOT a process
+  // name probe. Critical: prevents respawning around a slow-but-alive agent
+  // (which would create split-brain — two agents writing the port file,
+  // tokens diverging between them, mystery PTY upgrade failures).
+  //
+  // Crash-loop guard: 3 respawn attempts inside 60s → stop trying and emit
+  // a one-line error. Manual `forceRestart` from the sidebar clears the
+  // history (the user is the explicit signal to retry).
+  //
+  // Only active when ownsTerminalAgent === true. Embedders that pre-launch
+  // their own PTY server (gbrowser phoenix overlay) must not be auto-respawned
+  // by us — their lifecycle is their concern.
+  let agentWatchdogInterval: ReturnType<typeof setInterval> | null = null;
+  const respawnHistory: number[] = [];
+  const AGENT_WATCHDOG_TICK_MS = parseInt(
+    process.env.GSTACK_AGENT_WATCHDOG_TICK_MS || '60000',
+    10,
+  );
+  const RESPAWN_GUARD_WINDOW_MS = 60_000;
+  const RESPAWN_GUARD_MAX = 3;
+  let agentRespawnGuardTripped = false;
+
+  if (ownsTerminalAgent) {
+    agentWatchdogInterval = setInterval(() => {
+      if (isShuttingDown) return;
+      if (agentRespawnGuardTripped) return;
+      const stateDir = path.dirname(cfg.config.stateFile);
+      const record = readAgentRecord(stateDir);
+      // If the record exists and the PID is alive, the agent is healthy
+      // (or at least still answering signal 0). Slow-but-alive agents
+      // intentionally fall through here — split-brain is worse than
+      // unresponsiveness, and slow recovery is handled by the user via
+      // restart.
+      if (record && isProcessAlive(record.pid)) return;
+      // Either no record (never spawned, or cleaned up after crash) or
+      // PID is dead. Try to respawn.
+      const now = Date.now();
+      while (respawnHistory.length && now - respawnHistory[0] > RESPAWN_GUARD_WINDOW_MS) {
+        respawnHistory.shift();
+      }
+      if (respawnHistory.length >= RESPAWN_GUARD_MAX) {
+        agentRespawnGuardTripped = true;
+        console.error(
+          `[browse] terminal-agent respawn guard tripped (${RESPAWN_GUARD_MAX} crashes in ${RESPAWN_GUARD_WINDOW_MS / 1000}s) — manual restart required`,
+        );
+        return;
+      }
+      respawnHistory.push(now);
+      try {
+        const pid = spawnTerminalAgent({
+          stateFile: cfg.config.stateFile,
+          serverPort: cfg.browsePort,
+          cwd: cfg.config.projectDir,
+        });
+        if (pid) {
+          console.log(`[browse] terminal-agent respawned by watchdog (PID: ${pid})`);
+        } else {
+          console.warn('[browse] terminal-agent respawn skipped — script not found on disk');
+        }
+      } catch (err: any) {
+        console.warn('[browse] terminal-agent respawn failed:', err?.message || err);
+      }
+    }, AGENT_WATCHDOG_TICK_MS);
+    // Detach the watchdog timer from Node's event-loop ref count so a
+    // healthy idle process can still exit cleanly if everything else is
+    // also unref'd. Bun's setInterval returns a Timer with unref().
+    (agentWatchdogInterval as any)?.unref?.();
+  }
+
   // Factory-scoped validateAuth. Closes over cfg.authToken so every internal
   // auth check sees the same token the routes receive. Module-level
   // validateAuth was deleted in v1.35.0.0.
@@ -1345,6 +1424,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     if (cfgBrowserManager.isWatching()) cfgBrowserManager.stopWatch();
     clearInterval(flushInterval);
     clearInterval(idleCheckInterval);
+    if (agentWatchdogInterval) clearInterval(agentWatchdogInterval);
     await flushBuffers();
 
     await cfgBrowserManager.close();

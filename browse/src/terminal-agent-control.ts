@@ -19,6 +19,69 @@ import * as path from 'path';
 import { safeUnlink, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 
+/**
+ * Locate the terminal-agent script on disk. In dev (cli.ts running via
+ * `bun run`), it lives next to this file in browse/src. In a compiled
+ * binary, Bun's --compile bakes the source into the executable and
+ * exposes it relative to process.execPath. Either path must work or
+ * the agent can't be spawned at all.
+ */
+export function resolveTerminalAgentScript(searchHints: { metaDir?: string; execPath?: string } = {}): string | null {
+  const meta = searchHints.metaDir || __dirname;
+  const exec = searchHints.execPath || process.execPath;
+  const candidates = [
+    path.resolve(meta, 'terminal-agent.ts'),
+    path.resolve(path.dirname(exec), '..', 'src', 'terminal-agent.ts'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
+/**
+ * Spawn a fresh terminal-agent as a detached child. Handles the standard
+ * three steps: kill any prior agent recorded at `<stateDir>/terminal-agent-pid`,
+ * clear the stale record, then `Bun.spawn(['bun', 'run', script], ...)` with
+ * env wiring. Returns the PID of the new agent on success, null when the
+ * agent script can't be located.
+ *
+ * Used by both the CLI cold-start path (cli.ts) and the v1.44 watchdog in
+ * server.ts. Centralizing here removes a copy-paste between them and means
+ * future spawn-env additions (e.g. BROWSE_OWNER_PID for the generation
+ * counter rollout) land in one place.
+ */
+export function spawnTerminalAgent(opts: {
+  stateFile: string;
+  serverPort: number;
+  cwd?: string;
+  /** Optional extra env vars to add to the agent's process env. */
+  extraEnv?: Record<string, string>;
+  /** Override script lookup for tests. */
+  scriptPath?: string;
+}): number | null {
+  const stateDir = path.dirname(opts.stateFile);
+  const prior = readAgentRecord(stateDir);
+  if (prior) {
+    killAgentByRecord(prior, 'SIGTERM');
+    clearAgentRecord(stateDir);
+  }
+  const script = opts.scriptPath || resolveTerminalAgentScript();
+  if (!script || !fs.existsSync(script)) return null;
+  const proc = (Bun as any).spawn(['bun', 'run', script], {
+    cwd: opts.cwd || process.cwd(),
+    env: {
+      ...process.env,
+      BROWSE_STATE_FILE: opts.stateFile,
+      BROWSE_SERVER_PORT: String(opts.serverPort),
+      ...(opts.extraEnv || {}),
+    },
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  proc.unref?.();
+  return proc.pid ?? null;
+}
+
 export interface AgentRecord {
   pid: number;
   /** Random per-boot identifier. Loopback /internal/* sees X-Browse-Gen: <gen>. */

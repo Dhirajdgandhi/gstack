@@ -16,7 +16,7 @@ import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
-import { readAgentRecord, killAgentByRecord, clearAgentRecord } from './terminal-agent-control';
+import { spawnTerminalAgent } from './terminal-agent-control';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -1034,38 +1034,18 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       // claude -p subprocesses to multiplex.
 
       // Auto-start terminal agent (non-compiled bun process). Owns the PTY
-      // WebSocket for the sidebar Terminal pane.
-      let termAgentScript = path.resolve(__dirname, 'terminal-agent.ts');
-      if (!fs.existsSync(termAgentScript)) {
-        termAgentScript = path.resolve(path.dirname(process.execPath), '..', 'src', 'terminal-agent.ts');
-      }
+      // WebSocket for the sidebar Terminal pane. Routes through the shared
+      // spawnTerminalAgent helper so the CLI cold-start path and the
+      // server.ts watchdog respawn path share one implementation. The
+      // helper handles prior-PID cleanup, script lookup, and env wiring.
       try {
-        if (fs.existsSync(termAgentScript)) {
-          // Kill any stale terminal-agent from a prior run so its port file
-          // can't trick the server into routing /pty-session at a dead
-          // listener. Identity-based (v1.44+) — only kills the PID recorded
-          // in `<stateDir>/terminal-agent-pid`. Pre-v1.44 used
-          // `pkill -f terminal-agent\.ts` which matched sibling gstack
-          // sessions; see terminal-agent-control.ts header for rationale.
-          {
-            const stateDir = path.dirname(config.stateFile);
-            const prior = readAgentRecord(stateDir);
-            if (prior) {
-              killAgentByRecord(prior, 'SIGTERM');
-              clearAgentRecord(stateDir);
-            }
-          }
-          const termProc = Bun.spawn(['bun', 'run', termAgentScript], {
-            cwd: config.projectDir,
-            env: {
-              ...process.env,
-              BROWSE_STATE_FILE: config.stateFile,
-              BROWSE_SERVER_PORT: String(newState.port),
-            },
-            stdio: ['ignore', 'ignore', 'ignore'],
-          });
-          termProc.unref();
-          console.log(`[browse] Terminal agent started (PID: ${termProc.pid})`);
+        const newPid = spawnTerminalAgent({
+          stateFile: config.stateFile,
+          serverPort: newState.port,
+          cwd: config.projectDir,
+        });
+        if (newPid) {
+          console.log(`[browse] Terminal agent started (PID: ${newPid})`);
         }
       } catch (err: any) {
         // Non-fatal: chat still works without the terminal agent.
