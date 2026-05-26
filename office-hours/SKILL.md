@@ -1341,8 +1341,11 @@ If the JSON contains `"regenerated": true`:
 1. Read `regenerateAction` (or `remixSpec` for remix requests)
 2. Generate new variants with `$D iterate` or `$D variants` using updated brief
 3. Create new board with `$D compare`
-4. POST the new HTML to the running server via `curl -X POST http://localhost:PORT/api/reload -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
-   (parse the port from stderr: look for `SERVE_STARTED: port=XXXXX`)
+4. POST the new HTML to the running board. Parse the board URL from stderr
+   (`BOARD_URL: http://127.0.0.1:N/boards/<id>/` — the daemon path) or fall
+   back to the legacy port (`SERVE_STARTED: port=N` — only emitted under
+   `--no-daemon`, hits `/api/reload` root). Daemon path:
+   `curl -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'`
 5. Board auto-refreshes in the same tab
 
 If `"regenerated": false`: proceed with the approved variant.

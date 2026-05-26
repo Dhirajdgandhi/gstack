@@ -1,5 +1,5 @@
 /**
- * Per-skill SKILL.md size budget regression (v1.45.0.0 T5).
+ * Per-skill SKILL.md size budget regression (v1.46.0.0 T5).
  *
  * Asserts that no skill's generated SKILL.md grew beyond the v1.44.1
  * baseline. Catches preamble/resolver changes that bloat skills back to
