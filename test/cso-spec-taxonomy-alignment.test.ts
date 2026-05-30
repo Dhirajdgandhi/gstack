@@ -1,7 +1,10 @@
 /**
- * Cross-skill taxonomy alignment. /cso renders the full generated taxonomy table;
- * /spec references it without inlining. Both derive from lib/redact-patterns via
- * the shared resolver, so a manual edit to the wrong place is caught here.
+ * Cross-skill taxonomy alignment. The canonical taxonomy lives in
+ * lib/redact-patterns.ts (single source of truth). /spec and /cso both reference
+ * it by pointer rather than inlining the full catalog (size discipline). This
+ * test guards that the recognizable HIGH-tier prefixes stay present in /cso's
+ * archaeology prose and that the resolver-generated table stays derived from the
+ * lib (no drift between the generator and the pattern source).
  */
 import { describe, test, expect } from "bun:test";
 import * as fs from "fs";
@@ -15,17 +18,20 @@ const CSO = fs.readFileSync(path.join(ROOT, "cso", "SKILL.md"), "utf-8");
 const ctx = { skillName: "cso", tmplPath: "", host: "claude" as const, paths: HOST_PATHS["claude"] };
 
 describe("cso/spec taxonomy alignment", () => {
-  test("cso renders the full generated taxonomy table verbatim", () => {
-    const table = generateRedactTaxonomyTable(ctx);
-    // A couple of representative lines from the generated table must appear in /cso.
-    const line = table.split("\n").find((l) => l.includes("`aws.access_key`"));
-    expect(line).toBeTruthy();
-    expect(CSO).toContain(line!);
+  test("cso archaeology names the recognizable HIGH-tier prefixes", () => {
+    for (const s of ["AKIA", "ghp_", "sk-ant-", "BEGIN"]) {
+      expect(CSO).toContain(s);
+    }
   });
 
-  test("cso lists every HIGH-tier credential id (the archaeology contract, no drift)", () => {
-    for (const p of PATTERNS.filter((x) => x.tier === "HIGH")) {
-      expect(CSO).toContain(`\`${p.id}\``);
+  test("cso points to lib/redact-patterns.ts as the single source of truth", () => {
+    expect(CSO).toContain("lib/redact-patterns.ts");
+  });
+
+  test("the generated taxonomy table is derived from lib (every pattern id present)", () => {
+    const table = generateRedactTaxonomyTable(ctx);
+    for (const p of PATTERNS) {
+      expect(table).toContain(`\`${p.id}\``);
     }
   });
 

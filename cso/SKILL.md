@@ -652,7 +652,11 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-After answer, log best-effort:
+**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
+
+**Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses `(recommended)` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two `(recommended)` labels = refuse.
+
+After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
 ~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"cso","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
@@ -883,33 +887,12 @@ INFRASTRUCTURE SURFACE
 
 Scan git history for leaked credentials, check tracked `.env` files, find CI configs with inline secrets.
 
-**Canonical pattern catalog** (shared with `/spec`'s in-flight redaction, generated
-from `lib/redact-patterns.ts` — the archaeology greps below target these HIGH-tier
-prefixes; full MEDIUM/LOW taxonomy is in `lib/redact-patterns.ts`):
-
-**HIGH — genuinely-secret credentials. Blocks dispatch/file/edit/commit.**
-
-| ID | Catches | Example |
-|----|---------|---------|
-| `aws.access_key` | AWS access key ID (AKIA…) | AKIA… |
-| `aws.secret_key` | AWS secret access key (with aws_secret_access_key nearby) | 40-char base64 near aws_secret_access_key |
-| `github.pat` | GitHub personal access token (classic) | ghp_… |
-| `github.oauth` | GitHub OAuth token | gho_… |
-| `github.server` | GitHub server-to-server token | ghs_… |
-| `github.fine_grained` | GitHub fine-grained PAT | github_pat_… |
-| `anthropic.key` | Anthropic API key | sk-ant-… |
-| `openai.key` | OpenAI API key (incl. sk-proj-) | sk-… / sk-proj-… |
-| `sendgrid.key` | SendGrid API key | SG.x.y |
-| `stripe.secret` | Stripe live SECRET key | sk_live_… |
-| `slack.token` | Slack token (bot/user/app) | xoxb-/xoxp-… |
-| `slack.webhook` | Slack incoming webhook URL | hooks.slack.com/services/… |
-| `discord.webhook` | Discord webhook URL | discord.com/api/webhooks/… |
-| `twilio.auth_token` | Twilio auth token (32 hex, with an Account SID nearby) | 32-hex near an AC… SID |
-| `pem.private_key` | PEM private key block | -----BEGIN … PRIVATE KEY----- |
-| `db.url_with_password` | Database URL with embedded password | postgres://user:pw@host |
-| `creds.basic_auth_url` | HTTP(S) URL with embedded basic-auth credentials | https://user:pw@host |
-
-MEDIUM (PII / legal / internal + high-FP credential shapes like `pk_live_`/`AIza`/JWT/`*_KEY=`) confirms via AskUserQuestion; LOW surfaces as an FYI. Full taxonomy: `lib/redact-patterns.ts` (or `/cso`).
+**Canonical pattern catalog.** The HIGH-tier credential prefixes the archaeology
+greps below target (AKIA, ghp_, sk-ant-, sk_live_, xoxb-, `-----BEGIN ... PRIVATE
+KEY-----`, etc.) are the same set `/spec`'s in-flight redaction blocks on. The full
+3-tier taxonomy (HIGH credentials, MEDIUM PII/legal/internal, LOW) is generated from
+and lives in `lib/redact-patterns.ts` — the single source of truth shared by the
+`gstack-redact` engine, `/spec`, `/ship`, and the `/document-*` skills.
 
 **Git history — known secret prefixes:**
 ```bash
