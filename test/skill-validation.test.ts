@@ -623,7 +623,10 @@ describe('v0.4.1 preamble features', () => {
 // --- Structural tests for new skills ---
 
 describe('office-hours skill structure', () => {
-  const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  // Carved (v2 plan T9): Phase 5 (Design Doc) + Phase 6 (handoff) moved into
+  // sections/design-and-handoff.md, so structural phrases now live there — read
+  // the skeleton+sections union.
+  const content = readSkillUnion('office-hours');
 
   // Original structural assertions
   for (const section of ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6',

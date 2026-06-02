@@ -288,7 +288,15 @@ export const PARITY_INVARIANTS: ParityInvariant[] = [
     minBytes: 30_000,
   },
   {
+    // Carved (v2 plan T9): skeleton SKILL.md + sections/design-and-handoff.md.
+    // Phase 5 (design doc) + Phase 6 (handoff) moved into the section, so
+    // 'design doc' / 'problem statement' now live there — content checks run
+    // against the union. maxSkeletonBytes asserts the always-loaded skeleton
+    // shrank from the ~118KB monolith to ~89KB (measured 88,975 B, -24.8%);
+    // headroom to 96KB so a small skeleton edit doesn't trip CI.
     skill: 'office-hours',
+    sectioned: true,
+    maxSkeletonBytes: 96_000,
     mustContain: ['design doc', 'problem statement'],
     mustHaveHeadings: ['## Preamble', '## When to invoke'],
     maxSizeRatio: 1.05,
