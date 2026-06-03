@@ -28,6 +28,9 @@ Every plan-review skill starts lighter and pulls in its review body on demand. T
 - `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review` are each a skeleton + one `sections/review-sections.md` on Claude; Step 0 stays always-loaded.
 - Parity, size-budget, and gen-skill-docs treat all three as carved skills (union content checks, skeleton-shrink assertions).
 
+#### For contributors
+- The `/ship` and `/plan-ceo-review` section-loading E2E tests now detect section reads from the `claude -p` tool-use stream instead of scraping the real-PTY screen buffer, so they are reliable (the PTY path silently saw nothing in some terminals) and run hermetically against the worktree carve without mutating the installed skill.
+
 ## [1.58.0.0] - 2026-06-01
 
 ## **Every skill that asks you questions got a little lighter, all at once — the AskUserQuestion preamble stopped carrying its rare-case manuals inline.**

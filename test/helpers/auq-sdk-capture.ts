@@ -15,7 +15,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runSkillTest } from './session-runner';
+import { runSkillTest, type SkillTestResult } from './session-runner';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -199,6 +199,76 @@ This is a capture test, not an interactive session. Skip any system-audit / envi
   } catch {
     return '';
   }
+}
+
+/**
+ * Drive ANY carved skill through a real `claude -p` run and detect, LOSSLESSLY,
+ * which `sections/<file>.md` files the agent actually Read — from the tool-use
+ * stream, not the ANSI screen buffer. This is the reliable replacement for the
+ * real-PTY `visibleSince()` screen-scraping the section-loading tests used to do
+ * (which silently saw nothing in a Conductor PTY: cursor-positioned renders and
+ * an unanswered Step 0 question loop both defeat the regex).
+ *
+ * The skill under test is the planted copy in `planDir` (pin the absolute path so
+ * the agent cannot wander to the global install). AskUserQuestion is declared
+ * unavailable so the agent auto-picks the recommended option and proceeds far
+ * enough to hit the post-Step-0 STOP-Read directives; Read is the tool a STOP-Read
+ * resolves to, so Read/Grep/Glob/Write is all the agent needs (no Bash → it cannot
+ * `find /` its way out, nor run git/gh mutations).
+ */
+export async function captureSectionReads(opts: {
+  planDir: string;
+  skillName: string;
+  scenario: string;
+  /** Relative filename the agent writes its final output to (terminal signal). */
+  reportFile?: string;
+  /** Marker proving a real report/plan was produced (default: any non-empty text). */
+  reportMarker?: RegExp;
+  testName: string;
+  runId?: string;
+  model?: string;
+  maxTurns?: number;
+  timeout?: number;
+}): Promise<{ readSections: Set<string>; reportProduced: boolean; toolCalls: SkillTestResult['toolCalls']; output: string }> {
+  const outFile = path.join(opts.planDir, opts.reportFile ?? 'REPORT.md');
+  const skillPath = path.join(opts.planDir, opts.skillName, 'SKILL.md');
+  const prompt = `You are running an automated skill-execution test. No human is present, so AskUserQuestion is unavailable. The ONLY skill file you may read is this absolute path: ${skillPath}. Do NOT Glob/find/search for any other SKILL.md anywhere — especially nothing under ~/.claude or /Users.
+
+Read ${skillPath} and EXECUTE its workflow for this scenario:
+
+${opts.scenario}
+
+Rules for this run:
+- Skip system-audit, environment-setup, telemetry, and codebase-exploration steps.
+- At any decision point that would call AskUserQuestion, silently pick the skill's recommended option and continue. Do NOT stop to ask.
+- This skill's body has been carved into on-demand sections/. When the skill gives a STOP-Read directive (for example "Read \`.../sections/<file>\` and execute it in full"), you MUST actually Read that sections/ file with the Read tool BEFORE doing the work it covers. Do not work from memory.
+- Do NOT run git, gh, commit, push, or any mutating command.
+- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.`;
+
+  const result = await runSkillTest({
+    prompt,
+    workingDirectory: opts.planDir,
+    allowedTools: ['Read', 'Grep', 'Glob', 'Write'],
+    maxTurns: opts.maxTurns ?? 25,
+    timeout: opts.timeout ?? 300_000,
+    testName: opts.testName,
+    runId: opts.runId,
+    model: opts.model ?? 'claude-opus-4-7',
+  });
+
+  const readSections = new Set<string>();
+  for (const c of result.toolCalls) {
+    if (c.tool !== 'Read') continue;
+    const fp = String(c.input?.file_path ?? '');
+    const m = fp.match(/sections\/([A-Za-z0-9._-]+\.md)/);
+    if (m) readSections.add(m[1]);
+  }
+
+  let output = '';
+  try { output = fs.readFileSync(outFile, 'utf-8'); } catch { output = result.output ?? ''; }
+  const reportProduced = opts.reportMarker ? opts.reportMarker.test(output) : output.trim().length > 0;
+
+  return { readSections, reportProduced, toolCalls: result.toolCalls, output };
 }
 
 /** Read the carved (current worktree) plan-ceo SKILL.md + its sections dir. */
