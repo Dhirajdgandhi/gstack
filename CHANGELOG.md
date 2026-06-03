@@ -1,10 +1,10 @@
 # Changelog
 
-## [1.59.0.0] - 2026-06-01
+## [1.56.0.0] - 2026-06-03
 
-## **The whole plan-review family got carved. plan-eng, plan-design, and plan-devex now load their review bodies only after you have agreed scope.**
+## **Five heavy skills now load their bulk on demand, the shared question preamble slimmed corpus-wide, and a paranoid test suite proves the questions never got worse.**
 
-The three remaining heavyweight plan-review skills followed `/plan-ceo-review` into the skeleton + on-demand section pattern. Each one's review body — the multi-section deep review, the outside voice, the required outputs, and the review report writer — moved into `sections/review-sections.md` behind a single STOP-Read that fires only after Step 0 scope is agreed. Step 0 (the conversation that decides what to review) and the plan-mode exit gate stay in the always-loaded skeleton. Same pattern, same safety net: Layer 0 confirms the AskUserQuestion format spec stays always-loaded in every skeleton, and the carved-vs-verbose proof established for plan-ceo holds for the family.
+The token-reduction program lands its biggest wave. Five of the heaviest skills — `/plan-ceo-review`, `/office-hours`, `/plan-eng-review`, `/plan-design-review`, and `/plan-devex-review` — are now a small always-loaded skeleton plus an on-demand `sections/` file the agent opens only when it reaches the work. The conversational front half (Step 0 scope, the live interview) stays always-loaded; the deep review bodies, design-doc templates, outside-voice rules, and required-output writers move behind a single STOP-Read. The shared AskUserQuestion preamble also shed its rarely-needed CJK escaping manual, so every interactive skill is a little lighter at once. And because the most user-facing surface in gstack is the question it asks you, a new paranoid test suite proves that slimming a skill never strands or degrades that question.
 
 ### The numbers that matter
 
@@ -12,132 +12,53 @@ Measured from the generated skeletons (`wc -c <skill>/SKILL.md`), regenerated fo
 
 | Skill | Before | After | Δ |
 |-------|--------|-------|---|
+| plan-ceo-review | 138,838 B | 80,731 B | -42.0% |
+| office-hours | 118,280 B | 88,975 B | -24.8% |
 | plan-eng-review | 106,984 B | 54,892 B | -48.7% |
 | plan-design-review | 112,057 B | 76,024 B | -32.2% |
 | plan-devex-review | 110,621 B | 69,658 B | -37.0% |
 
-Combined with v1.54-v1.58, six skills are now carved (ship, plan-ceo-review, office-hours, plan-eng-review, plan-design-review, plan-devex-review) and the shared preamble shed its CJK manual corpus-wide. The always-loaded review prose loads only when a review actually reaches it.
+On top of the per-skill carves, the shared AskUserQuestion preamble dropped its inline CJK manual to a one-line rule + a doc pointer, trimming ~29,524 B across the Claude-host corpus (every interactive skill, ~900 B each).
+
+The AskUserQuestion proof, measured by SDK capture (`test/skill-e2e-auq-matrix.test.ts`):
+
+| Guarantee | Result |
+|-----------|--------|
+| Carved vs verbose, same trigger | 7/7 format, substance 5 == 7/7 format, substance 5 (no degradation) |
+| Matrix across 7 AUQ-heavy skills | all 7/7 format, substance 4-5 |
+| Same trigger 3× (consistency) | stable, every format element every run |
+| AUQ format spec always-loaded | guaranteed in every skeleton (Layer 0) |
+
+Every review runs identical pass for pass; the only thing that changed is what sits in context before the work begins.
 
 ### What this means for you
 
-Every plan-review skill starts lighter and pulls in its review body on demand. The reviews are identical pass for pass; only what is in context when changed. External hosts (codex, factory, kiro, opencode) still receive the full inline skill, so nothing regresses off Claude.
-
-### Itemized changes
-
-#### Changed
-- `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review` are each a skeleton + one `sections/review-sections.md` on Claude; Step 0 stays always-loaded.
-- Parity, size-budget, and gen-skill-docs treat all three as carved skills (union content checks, skeleton-shrink assertions).
-
-#### For contributors
-- The `/ship` and `/plan-ceo-review` section-loading E2E tests now detect section reads from the `claude -p` tool-use stream instead of scraping the real-PTY screen buffer, so they are reliable (the PTY path silently saw nothing in some terminals) and run hermetically against the worktree carve without mutating the installed skill.
-
-## [1.58.0.0] - 2026-06-01
-
-## **Every skill that asks you questions got a little lighter, all at once — the AskUserQuestion preamble stopped carrying its rare-case manuals inline.**
-
-The AskUserQuestion format block is inlined into every interactive skill (~33 of them). It carried the full multi-paragraph CJK / non-ASCII escaping manual inline, even though that rule only matters when a question contains Chinese, Japanese, or Korean text. The operative rule ("write non-ASCII characters literally, never `\u`-escape") already lives in the always-loaded self-check, so the long justification moved to `docs/askuserquestion-cjk.md`, read on demand. One change, every skill benefits. This is the preamble half of the token-reduction program: per-skill carves shrink one skill at a time, this shrinks the shared surface that rides on all of them.
-
-### The numbers that matter
-
-Measured across the Claude-host corpus (`cat SKILL.md */SKILL.md | wc -c`), regenerated for all hosts:
-
-| Metric | Before (v1.57) | After (v1.58) | Δ |
-|--------|----------------|---------------|---|
-| Claude-host skill corpus | 3,087,499 B | 3,057,975 B | -29,524 B |
-| per interactive skill | full CJK manual inline | rule + 1 doc pointer | ~900 B each × ~33 |
-| AUQ core format (Layer 0) | always-loaded | always-loaded (unchanged) | guaranteed |
-
-The core decision-brief format (ELI10, recommendation, pros/cons, stakes, self-check) is untouched and still always-loaded — Layer 0 enforces it. Only the rarely-needed CJK rationale moved on-demand.
-
-### What this means for you
-
-Nothing changes in how questions look or behave. For the rare CJK question, the agent reads one small doc for the full rationale; the operative rule was never removed. Every interactive skill is ~900 bytes lighter at the always-loaded layer.
+The skills you run most start markedly lighter: a `/plan-ceo-review` opens ~42% smaller, the others 25-49%, and they pull in their review bodies only when they reach them. You will not notice any behavior change in the reviews themselves; they run section for section as before. What you get is more of the context window left for your actual work, paid back on every invocation. And every skill that asks you questions now carries a guarantee, enforced by tests: the decision brief (plain-English ELI10, an explicit recommendation with a real reason, pros and cons, the stakes) is provably in context the instant any question fires. External hosts (codex, factory, kiro, opencode) still receive the full inline skill, so nothing regresses off Claude.
 
 ### Itemized changes
 
 #### Added
+- `plan-ceo-review/sections/review-sections.md` — the 11-section deep review, outside-voice rules, required-output registries, completion summary, review report writer, next-step chaining, and mode quick reference, behind a STOP-Read pointer with a passive `manifest.json`.
+- `office-hours/sections/design-and-handoff.md` — Phase 5 design-doc templates + Phase 6 tiered handoff, behind a STOP-Read pointer with a passive `manifest.json`.
+- `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review` each gain a `sections/review-sections.md` carved behind a post-Step-0 STOP-Read.
 - `docs/askuserquestion-cjk.md` — full non-ASCII / CJK escaping rationale + worked example, read on demand.
-
-#### Changed
-- The AskUserQuestion preamble block trims the inline CJK manual to the operative rule + a doc pointer; the self-check reminder stays always-loaded.
-
-## [1.57.0.0] - 2026-06-01
-
-## **/office-hours got 25% lighter, and there is now a test that proves slimming a skill never degrades the questions it asks you.**
-
-Two things shipped. First, `/office-hours` is the third Phase B carve: at 118KB it was the second-heaviest skill, and every session paid for the design-doc templates and the tiered relationship handoff up front, even though those only matter at the very end. They moved into `sections/design-and-handoff.md`, behind a single STOP-Read after Phase 4.5. The live conversation (Phases 1 through 4.5) stays in the always-loaded skeleton. Second, and bigger for the long run: a paranoid AskUserQuestion test suite that proves the carving program does not quietly wreck the most user-facing surface in gstack. The fear was real. Slimming a skill could strand the question format (no ELI10, no recommendation, no pros/cons) in a section that is not loaded when the question fires. Now that cannot happen without a test going red.
-
-### The numbers that matter
-
-Measured from the generated skeletons (`wc -c <skill>/SKILL.md`) and the SDK capture eval (`test/skill-e2e-auq-matrix.test.ts`), regenerated for all hosts:
-
-| Metric | Before (v1.56) | After (v1.57) | Δ |
-|--------|----------------|---------------|---|
-| office-hours always-loaded | 118,280 B (~29.5K tokens) | 88,975 B (~22.2K tokens) | -24.8% |
-| design doc + handoff loaded per run | always | only at Phase 5 | on-demand |
-| office-hours AUQ (carved vs verbose) | 7/7 format, substance 5 | 7/7 format, substance 5 | no degradation |
-| skills with always-loaded AUQ-format guarantee | 0 | every interactive skill | Layer 0 |
-
-Across `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review`, `/office-hours`, `/cso`, `/spec`, `/design-consultation`, and `/codex`, the first AskUserQuestion each fires scores a perfect 7/7 on format with recommendation substance 4-5.
-
-### What this means for you
-
-`/office-hours` starts a quarter lighter and pulls in the design-doc and handoff machinery only when it reaches them. You will not notice any behavior change. And every skill that asks you questions now carries a guarantee: the decision-brief format (plain-English ELI10, an explicit recommendation with a real reason, pros and cons, the stakes) is provably in context the instant any question fires, in both the fat and slim versions. The carving program can keep shrinking skills without anyone wondering whether the questions got worse.
-
-### Itemized changes
-
-#### Added
-- `office-hours/sections/design-and-handoff.md` — Phase 5 design-doc templates + Phase 6 tiered handoff, behind a STOP-Read pointer, with a passive `manifest.json` registry.
-- `test/auq-format-always-loaded.test.ts` — free, per-PR keystone: every interactive skill must carry the full AskUserQuestion format spec in its always-loaded skeleton, never stranded in a section. 51 cases plus a negative control.
-- `test/skill-e2e-auq-matrix.test.ts` — drives each AUQ-heavy skill to its first question and grades it to the plan-ceo bar (7/7 format, substance >=4).
+- `test/auq-format-always-loaded.test.ts` — free per-PR keystone: every interactive skill must carry the full AskUserQuestion format spec in its always-loaded skeleton, never stranded in a section. 51 cases plus a negative control.
+- `test/skill-e2e-auq-matrix.test.ts` — drives each AUQ-heavy skill to its first question and grades it (7/7 format, substance >=4).
 - `test/skill-e2e-auq-verbose-vs-carved-ab.test.ts` — proves a carved skill's question is not worse than the pre-carve monolith's, on the same trigger.
-- `test/skill-e2e-auq-consistency.test.ts` — same trigger N times, fails on any format element that appears in one run but not another.
+- `test/skill-e2e-auq-consistency.test.ts` — same trigger N times, fails on any format element that flickers between runs.
 - `test/codex-e2e-recommendation-substance.test.ts` — grades `/codex`'s live recommendation substance.
-
-#### Changed
-- `/office-hours` is a skeleton + one section on Claude; Phases 1-4.5 stay always-loaded; external hosts still receive the full inline skill (no behavior change off Claude).
-
-#### For contributors
-- `test/helpers/auq-sdk-capture.ts` — reusable SDK capture engine: drives a skill to its AUQ, captures the verbatim generated text cleanly (real-PTY mangles plan-mode questions), grades format + recommendation substance robust to the connective.
-- Parity, size-budget, gen-skill-docs, and skill-validation treat office-hours as a carved skill (union content checks, skeleton-shrink assertion).
-
-## [1.56.0.0] - 2026-05-31
-
-## **The biggest plan-review skill stopped taxing every session. /plan-ceo-review's always-loaded cost dropped 42%, and its deep review loads only when you reach it.**
-
-`/plan-ceo-review` was the heaviest skill at 138KB, and every session paid for all of it up front, even during the Step 0 scope conversation that does not need the 11-section review prose yet. It is now an 81KB decision-tree skeleton plus one `sections/review-sections.md` the agent opens on demand. The 11 review sections, the outside-voice rules, the required-output registries, the completion summary, the review report writer, and the mode quick reference all moved behind a single STOP-Read pointer that fires only after you have agreed scope and mode. All of Step 0, the conversational front half, stays in the always-loaded skeleton byte for byte. Other hosts (codex, factory, kiro, opencode) keep the full inline skill, so nothing regresses off Claude. This is the second Phase B carve after `/ship`, following the documented one-at-a-time order.
-
-### The numbers that matter
-
-Measured directly from the generated skeleton (`wc -c plan-ceo-review/SKILL.md`) and its one section file, regenerated for all hosts:
-
-| Metric | Before (v1.55) | After (v1.56) | Δ |
-|--------|----------------|---------------|---|
-| plan-ceo-review always-loaded | 138,838 B (~34.4K tokens) | 80,731 B (~20.1K tokens) | -42% |
-| review prose loaded per run | all of it | only after scope + mode agreed | on-demand |
-| skeleton + section union | 138,838 B | 139,110 B | behavior preserved |
-| External-host plan-ceo-review | inline | inline (unchanged behavior) | no regression |
-
-The skeleton is what loads the instant `/plan-ceo-review` is invoked, so the ~14.4K-token drop is paid back on every review, not once.
-
-### What this means for you
-
-A `/plan-ceo-review` run starts ~42% lighter and pulls in the 11-section review only when it reaches it, after you have agreed scope and mode. You will not notice any behavior change. The review is identical section for section; the difference is what is in context when. If you want to read the review chapter in isolation, it lives at `~/.claude/skills/gstack/plan-ceo-review/sections/review-sections.md`.
-
-### Itemized changes
-
-#### Added
-- `plan-ceo-review/sections/review-sections.md` — the 11-section deep review, outside-voice rules, required-output registries, completion summary, review report writer, next-step chaining, and mode quick reference, behind a STOP-Read pointer, with a passive `manifest.json` registry.
 - `test/skill-ceo-section-ordering.test.ts` — gate-tier static guard: the STOP fires after Step 0, the review body is absent from the skeleton, the report writer lives in the section, and nothing review-governing sits below the STOP.
-- `test/skill-e2e-plan-ceo-review-section-loading.test.ts` — periodic real-PTY backstop that refreshes the installed skill, drives the full Step 0, and asserts the section is Read before the report.
+- `test/skill-e2e-plan-ceo-review-section-loading.test.ts` — periodic backstop that asserts the carved section is Read before the report.
 
 #### Changed
-- `/plan-ceo-review` is a skeleton + one section on Claude; Step 0 (scope + mode) stays always-loaded; external hosts still receive the full inline skill (no behavior change off Claude).
-- Parity, size-budget, and section-manifest tests treat plan-ceo-review as a carved skill (content + size floors run against the skeleton + section union; the skeleton-shrink assertion guards the always-loaded win).
+- `/plan-ceo-review`, `/office-hours`, `/plan-eng-review`, `/plan-design-review`, `/plan-devex-review` are each a skeleton + one on-demand section on Claude; the conversational front (Step 0 / Phases 1-4.5) stays always-loaded; external hosts still receive the full inline skill (no behavior change off Claude).
+- The AskUserQuestion preamble trims the inline CJK manual to the operative rule + a doc pointer; the always-loaded self-check is unchanged.
+- Parity, size-budget, section-manifest, gen-skill-docs, and skill-validation treat every carved skill consistently (content + size floors run against the skeleton + section union; skeleton-shrink assertions guard the always-loaded win).
 
 #### For contributors
-- `section-manifest-consistency` now discovers every carved skill automatically, so the next Phase B carve is covered the moment its manifest lands.
-- `gen-skill-docs` and `skill-validation` read the skeleton + sections union for carved skills, so relocated prose still counts in content checks.
+- `test/helpers/auq-sdk-capture.ts` — reusable SDK capture engine: drives a skill to its AUQ and captures the verbatim generated text cleanly (real-PTY mangles plan-mode questions), grades format + recommendation substance robust to the connective, and detects section reads losslessly from the tool-use stream.
+- `section-manifest-consistency` discovers every carved skill automatically, so the next carve is covered the moment its manifest lands.
+- The `/ship` and `/plan-ceo-review` section-loading E2E tests detect section reads from the `claude -p` tool-use stream instead of scraping the real-PTY screen buffer, so they are reliable (the PTY path silently saw nothing in some terminals) and run hermetically against the worktree carve without mutating the installed skill.
 
 ## [1.55.1.0] - 2026-06-02
 
