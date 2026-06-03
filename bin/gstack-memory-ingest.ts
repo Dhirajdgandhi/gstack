@@ -1211,7 +1211,15 @@ function makeStagingDir(): string {
   mkdirSync(dir, { recursive: true });
   // Mint the ownership marker (#1802) so cleanupStagingDir() and decideResume()
   // can prove this dir was created by us before any recursive delete or resume.
-  writeFileSync(join(dir, STAGING_MARKER), `${process.pid}\n${Date.now()}\n`, "utf-8");
+  // #1802 C5: fail hard if the marker can't be written — a marker-less dir would
+  // be refused by the guard forever (leaked, never cleaned). Tear down the
+  // partial dir and rethrow so the caller fails loudly instead of leaking.
+  try {
+    writeFileSync(join(dir, STAGING_MARKER), `${process.pid}\n${Date.now()}\n`, "utf-8");
+  } catch (err) {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
+    throw err;
+  }
   return dir;
 }
 
@@ -1284,7 +1292,10 @@ function cleanupStagingDir(dir: string): void {
     return;
   }
   try {
-    rmSync(dir, { recursive: true, force: true });
+    // #1802 C5: delete the realpath-resolved dir the guard validated, not the
+    // raw input — closes the TOCTOU gap where `dir` is a symlink swapped between
+    // the check above and this rmSync. canonicalPath is always set when ok.
+    rmSync(verdict.canonicalPath ?? dir, { recursive: true, force: true });
   } catch {
     // best-effort
   }

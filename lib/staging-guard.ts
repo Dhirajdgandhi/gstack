@@ -50,6 +50,13 @@ export interface StagingVerdict {
   ok: boolean;
   /** Precise rejection reason, for actionable logging. Undefined when ok. */
   reason?: string;
+  /**
+   * The realpath-resolved directory the verdict actually validated. Present only
+   * when ok. Callers that delete MUST `rmSync` this path, not the raw input —
+   * deleting the canonical path closes the TOCTOU gap where the input is a
+   * symlink swapped between this check and the delete (#1802 C5).
+   */
+  canonicalPath?: string;
 }
 
 /**
@@ -100,7 +107,7 @@ export function checkOwnedStagingDir(dir: string, gstackHome: string): StagingVe
   } catch {
     return { ok: false, reason: `missing "${STAGING_MARKER}" marker — not minted by makeStagingDir` };
   }
-  return { ok: true };
+  return { ok: true, canonicalPath: canon };
 }
 
 /** Boolean convenience wrapper around {@link checkOwnedStagingDir}. */

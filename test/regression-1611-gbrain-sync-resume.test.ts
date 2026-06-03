@@ -287,6 +287,14 @@ describe("#1802 checkOwnedStagingDir — ownership matrix", () => {
     expect(checkOwnedStagingDir(mintStaging(), home).ok).toBe(true);
   });
 
+  test("#1802 C5: ok verdict carries the realpath-resolved canonicalPath", () => {
+    const d = mintStaging();
+    const v = checkOwnedStagingDir(d, home);
+    expect(v.ok).toBe(true);
+    // Callers must delete this (not the raw input) to close the symlink TOCTOU.
+    expect(v.canonicalPath).toBe(fs.realpathSync(d));
+  });
+
   test("repo root (direct child, has .git, no marker) → refused", () => {
     const repo = path.join(home, "my-repo");
     fs.mkdirSync(path.join(repo, ".git"), { recursive: true });
@@ -406,6 +414,27 @@ describe("#1802 C3 — import-timeout preserve (static invariant)", () => {
     expect(ingest).toMatch(
       /if \(!remoteHttpMode && !preserveStaging\) cleanupStagingDir\(stagingDir\)/,
     );
+  });
+});
+
+// ── #1802 C5: hardening (static invariant) ─────────────────────────────────
+describe("#1802 C5 — hardening (static invariant)", () => {
+  const ingest = fs.readFileSync(
+    path.join(ROOT, "bin", "gstack-memory-ingest.ts"),
+    "utf-8",
+  );
+
+  test("cleanupStagingDir deletes the canonical path, not the raw input", () => {
+    expect(ingest).toMatch(/rmSync\(verdict\.canonicalPath \?\? dir/);
+  });
+
+  test("makeStagingDir tears down + rethrows if the marker write fails", () => {
+    const at = ingest.indexOf("function makeStagingDir");
+    expect(at).toBeGreaterThan(-1);
+    const slice = ingest.slice(at, at + 800);
+    expect(slice).toMatch(/catch \(err\)/);
+    expect(slice).toMatch(/rmSync\(dir, \{ recursive: true, force: true \}\)/);
+    expect(slice).toMatch(/throw err/);
   });
 });
 
