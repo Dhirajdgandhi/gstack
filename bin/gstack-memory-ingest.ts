@@ -1555,6 +1555,11 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   if (!remoteHttpMode) {
     _activeStagingDir = stagingDir;
   }
+  // #1802 C3: set when the import-timeout branch leaves a resumable checkpoint
+  // pointing at this staging dir, so the finally preserves it for the next run
+  // instead of deleting it (the SIGTERM forwarder's preserve branch only runs
+  // when the PARENT is signalled, which an internal timeout never does).
+  let preserveStaging = false;
   try {
     let staging: StagingResult;
     if (resuming) {
@@ -1663,14 +1668,23 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     const importJson = parseImportJson(stdout);
 
     if (importResult.status !== 0) {
-      // #1611: on timeout, gbrain's import-checkpoint.json is preserved (the
-      // SIGTERM forwarder keeps the staging dir), so the next /sync-gbrain
-      // resumes rather than restarting. Tell the user instead of looking failed.
+      // #1611/#1802 C3: on timeout, gbrain may have written
+      // import-checkpoint.json so the next /sync-gbrain can resume. But an
+      // INTERNAL timeout (runGbrainImport kills the child and returns here)
+      // never signals the parent, so the SIGTERM forwarder's preserve branch
+      // doesn't run — and the finally would otherwise delete the staging dir
+      // despite a "checkpoint preserved" message. Mirror the forwarder: preserve
+      // only when gbrain actually checkpointed against this dir; otherwise let
+      // the finally clean up (nothing to resume) and say so honestly.
       if (importResult.timedOut) {
         const mins = Math.round(resolveImportTimeoutMs() / 60000);
-        const msg =
-          `gbrain import timed out after ${mins}min; checkpoint preserved — re-run ` +
-          `/sync-gbrain to resume (raise GSTACK_INGEST_TIMEOUT_MS for big brains)`;
+        const checkpointed = stagingDirIsCheckpointed(stagingDir);
+        const msg = checkpointed
+          ? `gbrain import timed out after ${mins}min; checkpoint preserved — re-run ` +
+            `/sync-gbrain to resume (raise GSTACK_INGEST_TIMEOUT_MS for big brains)`
+          : `gbrain import timed out after ${mins}min before writing a checkpoint; ` +
+            `re-run /sync-gbrain to restage (raise GSTACK_INGEST_TIMEOUT_MS for big brains)`;
+        if (checkpointed) preserveStaging = true;
         console.error(`[memory-ingest] ${msg}`);
         return {
           written: 0,
@@ -1786,7 +1800,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // `finally` runs on its `return`, so the gate has to live here. Gating on
     // mode (rather than widening the ownership guard) keeps checkOwnedStagingDir
     // strict: it only ever sees `.staging-ingest-*` dirs.
-    if (!remoteHttpMode) cleanupStagingDir(stagingDir);
+    if (!remoteHttpMode && !preserveStaging) cleanupStagingDir(stagingDir);
     _activeStagingDir = null;
   }
 

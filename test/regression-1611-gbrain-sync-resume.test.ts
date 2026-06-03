@@ -365,7 +365,9 @@ describe("#1802 D1 — remote-http finally gate (static invariant)", () => {
   );
 
   test("finally gates cleanupStagingDir on !remoteHttpMode", () => {
-    expect(ingest).toMatch(/if \(!remoteHttpMode\) cleanupStagingDir\(stagingDir\)/);
+    // Tolerates additional guards (e.g. C3's !preserveStaging) in the same
+    // condition — the load-bearing invariant is that remote-http never deletes.
+    expect(ingest).toMatch(/if \(!remoteHttpMode[^)]*\) cleanupStagingDir\(stagingDir\)/);
   });
 
   test("the only finally-scoped cleanup call is the gated one", () => {
@@ -375,5 +377,33 @@ describe("#1802 D1 — remote-http finally gate (static invariant)", () => {
     expect(finallyAt).toBeGreaterThan(-1);
     const finallySlice = ingest.slice(finallyAt, finallyAt + 800);
     expect(finallySlice).not.toMatch(/^\s*cleanupStagingDir\(stagingDir\);/m);
+  });
+});
+
+// ── #1802 C3: internal import-timeout must preserve a checkpointed staging dir ─
+// runGbrainImport kills only the child on an internal timeout; the parent
+// returns normally, so the SIGTERM forwarder's preserve branch never runs. The
+// timeout branch must mirror it (preserve when checkpointed) and the finally
+// must honor that — otherwise "checkpoint preserved" is a lie and resume breaks.
+describe("#1802 C3 — import-timeout preserve (static invariant)", () => {
+  const ingest = fs.readFileSync(
+    path.join(ROOT, "bin", "gstack-memory-ingest.ts"),
+    "utf-8",
+  );
+
+  test("timeout branch checks stagingDirIsCheckpointed and sets preserveStaging", () => {
+    const timeoutAt = ingest.indexOf("if (importResult.timedOut)");
+    expect(timeoutAt).toBeGreaterThan(-1);
+    const slice = ingest.slice(timeoutAt, timeoutAt + 1200);
+    expect(slice).toMatch(/stagingDirIsCheckpointed\(stagingDir\)/);
+    expect(slice).toMatch(/preserveStaging = true/);
+    // The not-checkpointed path must say so honestly rather than promising resume.
+    expect(slice).toMatch(/before writing a checkpoint/);
+  });
+
+  test("finally honors preserveStaging", () => {
+    expect(ingest).toMatch(
+      /if \(!remoteHttpMode && !preserveStaging\) cleanupStagingDir\(stagingDir\)/,
+    );
   });
 });
