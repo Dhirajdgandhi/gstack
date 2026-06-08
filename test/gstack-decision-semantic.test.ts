@@ -113,7 +113,7 @@ exit 1
     expect(hits![0].slug).toBe("decisions/foo"); // proves --source default was forwarded
   });
 
-  test("searches unscoped when no worktree source is registered", () => {
+  test("degrades to null when no curated-memory source (no unscoped fallback)", () => {
     writeShim(
       `#!/usr/bin/env bash
 if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"code","local_path":"/repo"}]}'; exit 0; fi
@@ -122,9 +122,8 @@ exit 1
 `,
     );
     expect(resolveMemorySourceId(env())).toBeNull();
-    const hits = semanticRecall("anything", env());
-    expect(hits).not.toBeNull();
-    expect(hits![0].slug).toBe("code/x");
+    // no worktree-backed source → null, NOT an unscoped search that would pull code/doc hits
+    expect(semanticRecall("anything", env())).toBeNull();
   });
 
   test("degrades to null when gbrain search exits non-zero", () => {

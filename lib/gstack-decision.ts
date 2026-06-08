@@ -119,7 +119,9 @@ export function validateDecide(input: Partial<DecisionEvent>): ValidateResult {
     }
   }
 
-  const freeText = [input.decision, input.rationale, input.alternatives_considered]
+  // Scan ALL stored free-text — incl. branch/issue, which are surfaced (and emitted raw
+  // via --json), so they must not carry secrets or injection either (Codex finding).
+  const freeText = [input.decision, input.rationale, input.alternatives_considered, input.branch, input.issue]
     .filter((s): s is string => typeof s === "string")
     .join("\n");
 

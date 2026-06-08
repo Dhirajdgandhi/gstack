@@ -48,8 +48,13 @@ const semantic = args.includes("--semantic");
 
 let rows: ActiveDecision[];
 if (showAll) {
-  // include superseded: every decide event from the full log (no active filter)
-  rows = readEvents(paths).filter((e): e is ActiveDecision => e.kind === "decide");
+  // --all includes SUPERSEDED decisions (history), but NEVER redacted ones — a redact
+  // is an expunge, so it must remove the text from every read path, not just active.
+  const events = readEvents(paths);
+  const redacted = new Set(
+    events.filter((e) => e.kind === "redact" && e.supersedes).map((e) => e.supersedes as string),
+  );
+  rows = events.filter((e): e is ActiveDecision => e.kind === "decide" && !redacted.has(e.id));
 } else {
   rows = readSnapshot(paths);
   // Rebuild only when a snapshot is absent but a log exists (don't write a snapshot
@@ -94,8 +99,10 @@ if (semantic && queryRaw) {
   if (hits && hits.length) {
     console.log("\nRelated from memory (gbrain semantic recall):");
     for (const h of hits) {
-      const snip = h.snippet.length > 100 ? `${h.snippet.slice(0, 100)}…` : h.snippet;
-      console.log(`  [${h.score.toFixed(2)}] ${h.slug}: ${snip}`);
+      // gbrain hits are EXTERNAL corpus content — datamark slug + snippet too so they
+      // can't spoof role markers / fences when printed into agent context.
+      const snip = datamark(h.snippet.length > 100 ? `${h.snippet.slice(0, 100)}…` : h.snippet);
+      console.log(`  [${h.score.toFixed(2)}] ${datamark(h.slug)}: ${snip}`);
     }
   }
 }

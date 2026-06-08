@@ -82,10 +82,12 @@ export function semanticRecall(
   limit = 3,
 ): SemanticHit[] | null {
   if (!query.trim()) return null;
+  // Require the curated-memory source. If it's absent (gbrain down OR no worktree-backed
+  // source), degrade to null rather than searching UNSCOPED — an unscoped search pulls
+  // code/doc corpora that would be mislabeled as "related decisions" (Codex finding).
   const sourceId = resolveMemorySourceId(env);
-  const args = ["search", query];
-  if (sourceId) args.push("--source", sourceId);
-  const r = spawnGbrain(args, { baseEnv: env, timeout: TIMEOUT_MS });
+  if (!sourceId) return null;
+  const r = spawnGbrain(["search", query, "--source", sourceId], { baseEnv: env, timeout: TIMEOUT_MS });
   if (r.status !== 0) return null; // gbrain down / not on PATH / errored → degrade
   return parseSearchHits(r.stdout || "", minScore, limit);
 }
