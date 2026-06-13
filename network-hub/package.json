@@ -1,0 +1,22 @@
+{
+  "name": "network-hub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"bun run dev:server\" \"bun run dev:web\"",
+    "dev:server": "bun run --watch server/index.ts",
+    "dev:web": "cd web && bun run dev",
+    "build": "cd web && bun run build",
+    "test": "bun test server/",
+    "cli": "bun run cli/network-hub.ts"
+  },
+  "bin": {
+    "network-hub": "./cli/network-hub.ts"
+  },
+  "dependencies": {
+    "unpdf": "^1.0.6"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

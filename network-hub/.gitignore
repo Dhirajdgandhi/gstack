@@ -1,0 +1,8 @@
+node_modules/
+web/node_modules/
+web/dist/
+web/src/**/*.js
+!web/src/**/*.config.js
+*.db
+bun.lock
+.env
