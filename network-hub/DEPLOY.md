@@ -28,6 +28,14 @@ Set in Vercel → Project → Settings → Environment Variables:
 | `OPENAI_API_KEY` | Optional | AI enrichment on save |
 | `PROXYCURL_API_KEY` | Optional | LinkedIn URL fetch |
 
+**Do not copy local `.env` URLs to Vercel.** Remove or leave unset on production:
+
+- `APP_URL` — auto-derived from `VERCEL_URL` (e.g. `https://gstack-nine.vercel.app`)
+- `API_URL` — same as `APP_URL` on single-domain deploys
+- `GOOGLE_REDIRECT_URI` — auto-derived as `https://<your-domain>/api/auth/google/callback`
+
+If you set `APP_URL=http://localhost:5173` on Vercel, OAuth redirects will break after sign-in.
+
 After first deploy, add your production URL to Google OAuth **Authorized redirect URIs**:
 
 ```
@@ -67,7 +75,25 @@ For production persistence, plan one of:
 
 For demos and personal use, `/tmp` is fine; set `JWT_SECRET` and re-create accounts after redeploys if needed.
 
-## 6. Local vs Vercel
+## 6. Troubleshooting Google login 404
+
+Vercel's `api/[[...path]].ts` catch-all only reliably serves **single-segment** API routes (`/api/health`). Nested routes like `/api/auth/google/login` return platform `404 NOT_FOUND`.
+
+This project uses `api/index.ts` + a rewrite in `vercel.json`:
+
+```json
+{ "source": "/api/(.*)", "destination": "/api/index?path=$1" }
+```
+
+If Google login still fails after deploy:
+
+1. Confirm **Root Directory** is `network-hub` (not the `gstack` repo root).
+2. Remove localhost `APP_URL` / `API_URL` / `GOOGLE_REDIRECT_URI` from Vercel env vars.
+3. Add production callback to Google Cloud Console:
+   `https://<your-domain>/api/auth/google/callback`
+4. Check function logs: `npx vercel logs <deployment-url> --expand`
+
+## 7. Local vs Vercel
 
 | | Local | Vercel |
 |---|--------|--------|

@@ -6,3 +6,4 @@ web/src/**/*.js
 *.db
 bun.lock
 .env
+.vercel
