@@ -34,8 +34,9 @@ export interface Contact {
   pendingAgenda: string[];
   linkedinProfile?: LinkedInProfile;
   profileSummary?: string;
-  enrichedFrom?: "linkedin_api" | "linkedin_pdf" | "manual";
+  enrichedFrom?: "linkedin_api" | "linkedin_pdf" | "manual" | "calendar";
   enrichedAt?: string;
+  autoCreated?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,6 +56,7 @@ export interface Meeting {
   debriefComplete: boolean;
   status: "confirmed" | "cancelled";
   syncedAt: string;
+  teamAgendaCount?: number;
 }
 
 export interface LinkSuggestion {
@@ -65,7 +67,22 @@ export interface LinkSuggestion {
   personName: string;
   contactId?: string;
   contactName?: string;
-  reason: "no_contact" | "missing_linkedin";
+  reason: "incomplete_profile" | "missing_linkedin";
+  missingFields?: string[];
+}
+
+export interface Conversation {
+  id: string;
+  addedByUserId: string;
+  addedByUsername: string;
+  contactId?: string;
+  personName?: string;
+  meetingId?: string;
+  notes: string;
+  visibility: "private" | "team";
+  occurredAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface FollowUp {
@@ -111,6 +128,37 @@ export interface MeetingPrep {
   openLoops: string[];
   avoid: string[];
   generatedAt: string;
+}
+
+export interface TeamAgendaItem {
+  id: string;
+  meetingId: string;
+  addedByUserId: string;
+  addedByUsername: string;
+  text: string;
+  tags: string[];
+  createdAt: string;
+}
+
+export interface RefinedAgendaSection {
+  title: string;
+  items: Array<{ text: string; contributors: string[]; tags: string[] }>;
+}
+
+export interface RefinedTeamAgenda {
+  meetingId: string;
+  summary: string;
+  sections: RefinedAgendaSection[];
+  refinedAt: string;
+  aiPowered: boolean;
+  sourceItemCount: number;
+}
+
+export interface TeamAgendaBundle {
+  items: TeamAgendaItem[];
+  refined: RefinedTeamAgenda | null;
+  meetingTitle?: string;
+  meetingStart?: string;
 }
 
 export type AdvisorType = "revive" | "gap" | "intro" | "double-down" | "calendar";

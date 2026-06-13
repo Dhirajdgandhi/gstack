@@ -3,6 +3,7 @@ import { calendarEventsUrl } from "../lib/google-calendar-id";
 import { collectMeetingPersonNames, namesMatch } from "../lib/meeting-names";
 import { clearGoogleSyncedMeetings, listContacts, listMeetings, upsertMeetings, getGoogleTokens, saveGoogleTokens } from "../db";
 import { computeLinkSuggestions } from "./link-suggestions";
+import { ensureNetworkFromMeetings } from "./network-sync";
 import type { GoogleCalendarEvent, GoogleTokens, LinkSuggestion, Meeting } from "../types";
 
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
@@ -167,12 +168,15 @@ export function eventsToMeetings(userId: string, events: GoogleCalendarEvent[]):
 
 export async function syncGoogleCalendar(
   userId: string,
+  username: string,
 ): Promise<{
   count: number;
   source: "google";
   calendarId: string;
   calendarLabel: string;
   linkSuggestions: LinkSuggestion[];
+  contactsCreated: number;
+  meetingsLinked: number;
 }> {
   const calendarId = getGoogleCalendarId();
   const events = await fetchGoogleCalendarEvents(userId);
@@ -185,14 +189,24 @@ export async function syncGoogleCalendar(
       ...m,
       debriefComplete: prev.debriefComplete,
       prepStatus: prev.prepStatus,
-      contactIds: prev.contactIds.length > 0 ? prev.contactIds : m.contactIds,
+      contactIds: [...new Set([...prev.contactIds, ...m.contactIds])],
       attendeeNames: m.attendeeNames.length > 0 ? m.attendeeNames : prev.attendeeNames ?? [],
     };
   });
   clearGoogleSyncedMeetings(userId);
   upsertMeetings(userId, meetings);
+
+  const networkSync = ensureNetworkFromMeetings(userId, username, meetings);
   const linkSuggestions = computeLinkSuggestions(userId, true);
-  return { count: meetings.length, source: "google", calendarId, calendarLabel: "Axon AI", linkSuggestions };
+  return {
+    count: meetings.length,
+    source: "google",
+    calendarId,
+    calendarLabel: "Axon AI",
+    linkSuggestions,
+    contactsCreated: networkSync.contactsCreated,
+    meetingsLinked: networkSync.meetingsLinked,
+  };
 }
 
 export function isGoogleConnected(userId: string): boolean {

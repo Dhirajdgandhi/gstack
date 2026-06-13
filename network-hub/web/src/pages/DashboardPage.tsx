@@ -44,10 +44,13 @@ export default function DashboardPage() {
     setSyncNote(null);
     try {
       const r = await api.calendar.sync();
-      setSyncNote(
-        `Synced ${r.count} events from ${r.calendarLabel ?? config?.googleCalendarLabel ?? "Axon AI"}` +
-          (r.linkSuggestions.length ? ` · ${r.linkSuggestions.length} need LinkedIn` : ""),
-      );
+      const parts = [
+        `Synced ${r.count} events from ${r.calendarLabel ?? config?.googleCalendarLabel ?? "Axon AI"}`,
+      ];
+      if (r.contactsCreated) parts.push(`${r.contactsCreated} added to network`);
+      if (r.meetingsLinked) parts.push(`${r.meetingsLinked} meeting links`);
+      if (r.linkSuggestions.length) parts.push(`${r.linkSuggestions.length} profiles to complete`);
+      setSyncNote(parts.join(" · "));
       setLinkSuggestions(r.linkSuggestions);
       await load();
     } catch (e) {

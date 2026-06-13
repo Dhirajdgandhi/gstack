@@ -54,8 +54,10 @@ export interface Contact {
   pendingAgenda: string[];
   linkedinProfile?: LinkedInProfile;
   profileSummary?: string;
-  enrichedFrom?: "linkedin_api" | "linkedin_pdf" | "manual";
+  enrichedFrom?: "linkedin_api" | "linkedin_pdf" | "manual" | "calendar";
   enrichedAt?: string;
+  /** Stub contact auto-added from calendar sync — profile may be incomplete. */
+  autoCreated?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,7 +87,25 @@ export interface LinkSuggestion {
   personName: string;
   contactId?: string;
   contactName?: string;
-  reason: "no_contact" | "missing_linkedin";
+  reason: "incomplete_profile" | "missing_linkedin";
+  /** Fields still empty — prompt user to fill in. */
+  missingFields?: string[];
+}
+
+/** Offline or async conversation logged by a teammate. */
+export interface Conversation {
+  id: string;
+  addedByUserId: string;
+  addedByUsername: string;
+  contactId?: string;
+  personName?: string;
+  meetingId?: string;
+  notes: string;
+  /** private = author only; team = visible to all teammates. */
+  visibility: "private" | "team";
+  occurredAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface FollowUp {
@@ -131,6 +151,40 @@ export interface MeetingPrep {
   openLoops: string[];
   avoid: string[];
   generatedAt: string;
+}
+
+/** Team-contributed agenda item for a shared upcoming meeting. */
+export interface TeamAgendaItem {
+  id: string;
+  meetingId: string;
+  addedByUserId: string;
+  addedByUsername: string;
+  text: string;
+  /** Thematic tags (fundraising, product) plus contributor tag `by:username`. */
+  tags: string[];
+  createdAt: string;
+}
+
+export interface RefinedAgendaSection {
+  title: string;
+  items: Array<{ text: string; contributors: string[]; tags: string[] }>;
+}
+
+/** AI-synthesized agenda from all team contributions. */
+export interface RefinedTeamAgenda {
+  meetingId: string;
+  summary: string;
+  sections: RefinedAgendaSection[];
+  refinedAt: string;
+  aiPowered: boolean;
+  sourceItemCount: number;
+}
+
+export interface TeamAgendaBundle {
+  items: TeamAgendaItem[];
+  refined: RefinedTeamAgenda | null;
+  meetingTitle?: string;
+  meetingStart?: string;
 }
 
 export type AdvisorType = "revive" | "gap" | "intro" | "double-down" | "calendar";

@@ -1,4 +1,4 @@
-import { getContact, getDebrief, getMeeting, getMeetingPrep, listContacts, saveMeetingPrep } from "../db";
+import { getContact, getMeeting, getMeetingPrep, getRefinedTeamAgenda, listContacts, saveMeetingPrep } from "../db";
 import type { Contact, MeetingPrep } from "../types";
 
 export function buildMeetingPrep(userId: string, meetingId: string): MeetingPrep | null {
@@ -9,7 +9,29 @@ export function buildMeetingPrep(userId: string, meetingId: string): MeetingPrep
     .map((id) => getContact(userId, id))
     .filter((c): c is Contact => c !== null);
 
-  const topics = contacts.flatMap((c) => {
+  const topics: MeetingPrep["topics"] = [];
+
+  const refined = getRefinedTeamAgenda(meetingId);
+  if (refined) {
+    for (const section of refined.sections) {
+      for (const item of section.items.slice(0, 3)) {
+        topics.push({
+          topic: item.text,
+          why: `${section.title} · ${item.contributors.join(", ")}`,
+          ask: `Cover: ${item.text.slice(0, 80)}`,
+        });
+      }
+    }
+    if (refined.summary && topics.length === 0) {
+      topics.push({
+        topic: refined.summary,
+        why: "Team agenda (AI refined)",
+        ask: "Walk through the agreed team agenda",
+      });
+    }
+  }
+
+  const contactTopics = contacts.flatMap((c) => {
     const loops = c.pendingAgenda ?? [];
     return loops.slice(0, 2).map((topic) => ({
       topic,
@@ -17,6 +39,8 @@ export function buildMeetingPrep(userId: string, meetingId: string): MeetingPrep
       ask: `Close the loop on: ${topic}`,
     }));
   });
+
+  topics.push(...contactTopics);
 
   if (topics.length === 0 && contacts.length > 0) {
     const c = contacts[0];

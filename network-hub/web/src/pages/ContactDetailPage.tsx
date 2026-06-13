@@ -4,7 +4,8 @@ import { api } from "../api/client";
 import AgentUpdates from "../components/AgentUpdates";
 import FormattedNotesField from "../components/FormattedNotesField";
 import MarkdownContent from "../components/MarkdownContent";
-import type { AgentResult, Contact } from "../types";
+import ConversationsPanel from "../components/ConversationsPanel";
+import type { AgentResult, Contact, Meeting } from "../types";
 
 const TAG_SUGGESTIONS = ["investor", "founder", "operator", "mentor", "customer", "recruiter"];
 
@@ -27,12 +28,13 @@ export default function ContactDetailPage() {
   const [notes, setNotes] = useState("");
   const [summary, setSummary] = useState("");
   const [goalTags, setGoalTags] = useState<string[]>([]);
+  const [goalOptions, setGoalOptions] = useState<string[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
 
   useEffect(() => {
     if (!id) return;
-    api.contacts
-      .get(id)
-      .then((c) => {
+    Promise.all([api.contacts.get(id), api.advisor.goals(), api.contacts.meetings(id)])
+      .then(([c, g, m]) => {
         setContact(c);
         setName(c.name);
         setTitle(c.title ?? "");
@@ -45,9 +47,15 @@ export default function ContactDetailPage() {
         setNotes(c.notes ?? "");
         setSummary(c.profileSummary ?? "");
         setGoalTags(c.goalTags);
+        setGoalOptions(g.allGoals);
+        setMeetings(m);
       })
       .catch((e) => setError(e.message));
   }, [id]);
+
+  function toggleGoalTag(goal: string) {
+    setGoalTags((prev) => (prev.includes(goal) ? prev.filter((t) => t !== goal) : [...prev, goal]));
+  }
 
   function toggleTag(tag: string) {
     setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
@@ -95,7 +103,28 @@ export default function ContactDetailPage() {
       </h2>
       <p className="page-sub">
         {contact.name} · added by {contact.addedByUsername}
+        {contact.autoCreated && (
+          <span className="badge" style={{ marginLeft: "0.5rem" }}>
+            From calendar
+          </span>
+        )}
       </p>
+
+      {meetings.length > 0 && (
+        <div className="card" style={{ marginBottom: "1rem" }}>
+          <h3 style={{ marginTop: 0 }}>Meetings ({meetings.length})</h3>
+          <ul className="meeting-link-list">
+            {meetings.map((m) => (
+              <li key={m.id}>
+                <Link to={`/meetings/${m.id}`}>{m.title}</Link>
+                <span style={{ color: "var(--muted)", marginLeft: "0.5rem" }}>
+                  {new Date(m.start).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <form className="card contact-review" onSubmit={handleSave}>
         <div className="grid-2">
@@ -160,18 +189,24 @@ export default function ContactDetailPage() {
           </div>
         </div>
 
-        {goalTags.length > 0 && (
-          <div className="field">
-            <label>Goal alignment</label>
-            <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
-              {goalTags.map((g) => (
-                <span key={g} className="badge">
-                  {g}
-                </span>
-              ))}
-            </div>
+        <div className="field">
+          <label>Goal alignment</label>
+          <p className="hint" style={{ marginTop: 0 }}>
+            Auto-filled from tags and profile. Toggle to override.
+          </p>
+          <div className="tag-picker">
+            {goalOptions.map((g) => (
+              <button
+                key={g}
+                type="button"
+                className={`tag-chip${goalTags.includes(g) ? " active" : ""}`}
+                onClick={() => toggleGoalTag(g)}
+              >
+                {g}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
 
         <FormattedNotesField
           id="notes"
@@ -205,6 +240,8 @@ export default function ContactDetailPage() {
       </form>
 
       <AgentUpdates agent={agent} onDismiss={() => setAgent(null)} />
+
+      <ConversationsPanel contactId={contact.id} contactName={contact.name} />
     </>
   );
 }

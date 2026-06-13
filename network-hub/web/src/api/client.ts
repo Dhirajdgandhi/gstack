@@ -68,6 +68,30 @@ export const api = {
       if (linkedin) fd.append("linkedin", linkedin);
       return request<LinkedInEnrichment & { linkedin?: string }>("/contacts/parse-resume-pdf", { method: "POST", body: fd });
     },
+    meetings: (id: string) => request<import("../types").Meeting[]>(`/contacts/${id}/meetings`),
+    conversations: {
+      list: (contactId: string) => request<import("../types").Conversation[]>(`/contacts/${contactId}/conversations`),
+      add: (contactId: string, body: { notes: string; visibility?: "private" | "team"; occurredAt?: string; meetingId?: string }) =>
+        request<import("../types").Conversation>(`/contacts/${contactId}/conversations`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+    },
+  },
+  conversations: {
+    list: () => request<import("../types").Conversation[]>("/conversations"),
+    add: (body: {
+      notes: string;
+      contactId?: string;
+      personName?: string;
+      meetingId?: string;
+      visibility?: "private" | "team";
+      occurredAt?: string;
+    }) =>
+      request<import("../types").Conversation>("/conversations", { method: "POST", body: JSON.stringify(body) }),
+    update: (id: string, body: Partial<Pick<import("../types").Conversation, "notes" | "visibility" | "occurredAt">>) =>
+      request<import("../types").Conversation>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    remove: (id: string) => request<{ ok: boolean }>(`/conversations/${id}`, { method: "DELETE" }),
   },
   meetings: {
     upcoming: () => request<import("../types").Meeting[]>("/meetings/upcoming"),
@@ -82,12 +106,33 @@ export const api = {
       ),
     linkContact: (
       meetingId: string,
-      body: { personName: string; linkedin?: string; email?: string; contactId?: string },
+      body: { personName: string; linkedin?: string; email?: string; contactId?: string; title?: string; company?: string },
     ) =>
       request<{ meeting: import("../types").Meeting; contact: import("../types").Contact; created: boolean }>(
         `/meetings/${meetingId}/link-contact`,
         { method: "POST", body: JSON.stringify(body) },
       ),
+    teamAgenda: {
+      get: (meetingId: string) => request<import("../types").TeamAgendaBundle>(`/meetings/${meetingId}/team-agenda`),
+      add: (meetingId: string, body: { text: string; tags?: string[] }) =>
+        request<import("../types").TeamAgendaBundle>(`/meetings/${meetingId}/team-agenda`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      refine: (meetingId: string) =>
+        request<import("../types").TeamAgendaBundle>(`/meetings/${meetingId}/team-agenda/refine`, {
+          method: "POST",
+        }),
+      suggestTags: (meetingId: string, text: string) =>
+        request<{ tags: string[]; options: string[] }>(`/meetings/${meetingId}/team-agenda/suggest-tags`, {
+          method: "POST",
+          body: JSON.stringify({ text }),
+        }),
+      remove: (meetingId: string, itemId: string) =>
+        request<import("../types").TeamAgendaBundle>(`/meetings/${meetingId}/team-agenda/${itemId}`, {
+          method: "DELETE",
+        }),
+    },
   },
   calendar: {
     sync: () =>
@@ -97,6 +142,8 @@ export const api = {
         calendarId: string;
         calendarLabel: string;
         linkSuggestions: import("../types").LinkSuggestion[];
+        contactsCreated: number;
+        meetingsLinked: number;
       }>("/calendar/sync", { method: "POST" }),
     linkSuggestions: () =>
       request<{ suggestions: import("../types").LinkSuggestion[] }>("/calendar/link-suggestions"),
@@ -110,9 +157,13 @@ export const api = {
     suggestions: () => request<import("../types").AdvisorSuggestion[]>("/advisor/suggestions"),
     refresh: () => request<import("../types").AdvisorSuggestion[]>("/advisor/refresh", { method: "POST" }),
     dismiss: (id: string) => request<{ ok: boolean }>(`/advisor/${id}/dismiss`, { method: "POST" }),
-    goals: () => request<{ goals: string[] }>("/advisor/goals"),
+    goals: () =>
+      request<{ goals: string[]; allGoals: string[]; addedFromNetwork?: string[] }>("/advisor/goals"),
     setGoals: (goals: string[]) =>
-      request<{ goals: string[] }>("/advisor/goals", { method: "PATCH", body: JSON.stringify({ goals }) }),
+      request<{ goals: string[]; allGoals: string[]; addedFromNetwork?: string[] }>("/advisor/goals", {
+        method: "PATCH",
+        body: JSON.stringify({ goals }),
+      }),
   },
   meta: () => request<{ lastCalendarSync: string | null; googleConnected: boolean }>("/meta"),
 };

@@ -6,7 +6,7 @@
     "dev": "concurrently \"bun run dev:server\" \"bun run dev:web\"",
     "dev:server": "bun run --watch server/index.ts",
     "dev:web": "cd web && bun run dev",
-    "build": "cd web && bun run build",
+    "build": "npm run build --prefix web",
     "test": "bun test server/",
     "cli": "bun run cli/network-hub.ts"
   },
@@ -18,5 +18,8 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

@@ -1,6 +1,7 @@
 import { getContact, listContacts, listMeetings, saveMeeting } from "../db";
 import { createContact, updateContact } from "./contacts";
 import { collectMeetingPersonNames, namesMatch } from "../lib/meeting-names";
+import { missingProfileFields } from "./network-sync";
 import type { Contact, LinkSuggestion, Meeting } from "../types";
 
 function findContactByName(contacts: Contact[], personName: string): Contact | undefined {
@@ -15,14 +16,11 @@ function findContactByName(contacts: Contact[], personName: string): Contact | u
   return partial.length === 1 ? partial[0] : undefined;
 }
 
-function isLinked(contact: Contact): boolean {
-  return Boolean(contact.linkedin?.trim());
-}
-
 export function computeLinkSuggestions(userId: string, upcomingOnly = true): LinkSuggestion[] {
   const contacts = listContacts(userId);
   const meetings = listMeetings(userId, upcomingOnly);
   const suggestions: LinkSuggestion[] = [];
+  const seen = new Set<string>();
 
   for (const meeting of meetings) {
     const personNames = meeting.attendeeNames?.length
@@ -30,12 +28,18 @@ export function computeLinkSuggestions(userId: string, upcomingOnly = true): Lin
       : collectMeetingPersonNames(meeting.title, []);
 
     for (const personName of personNames) {
+      const key = `${meeting.id}:${personName.toLowerCase()}`;
+      if (seen.has(key)) continue;
+
       const contact = findContactByName(contacts, personName);
-      const linkedContactIds = new Set(meeting.contactIds);
+      const missing = contact ? missingProfileFields(contact) : ["linkedin", "email", "title", "company"];
 
-      if (contact && linkedContactIds.has(contact.id) && isLinked(contact)) continue;
+      if (missing.length === 0) continue;
 
-      const reason: LinkSuggestion["reason"] = !contact ? "no_contact" : "missing_linkedin";
+      seen.add(key);
+      const reason: LinkSuggestion["reason"] = !contact?.linkedin?.trim()
+        ? "missing_linkedin"
+        : "incomplete_profile";
 
       suggestions.push({
         id: `${meeting.id}:${personName.toLowerCase().replace(/\s+/g, "-")}`,
@@ -46,6 +50,7 @@ export function computeLinkSuggestions(userId: string, upcomingOnly = true): Lin
         contactId: contact?.id,
         contactName: contact?.name,
         reason,
+        missingFields: missing,
       });
     }
   }
@@ -57,7 +62,7 @@ export function linkPersonToMeeting(
   userId: string,
   username: string,
   meeting: Meeting,
-  input: { personName: string; linkedin?: string; email?: string; contactId?: string },
+  input: { personName: string; linkedin?: string; email?: string; contactId?: string; title?: string; company?: string },
 ): { meeting: Meeting; contact: Contact; created: boolean } {
   let contact: Contact | null = null;
   let created = false;
@@ -70,24 +75,29 @@ export function linkPersonToMeeting(
   }
 
   if (!contact) {
-    if (!input.linkedin?.trim()) {
-      throw new Error("LinkedIn URL required to add a new contact to your network");
-    }
     contact = createContact(userId, username, {
       name: input.personName,
       linkedin: input.linkedin,
       email: input.email,
+      title: input.title,
+      company: input.company,
       knownVia: `Calendar: ${meeting.title}`,
+      tags: ["from-calendar"],
+      enrichedFrom: "calendar",
+      autoCreated: false,
     });
     created = true;
   } else {
-    if (input.linkedin || input.email) {
-      contact = updateContact(userId, contact.id, {
-        linkedin: input.linkedin ?? contact.linkedin,
-        email: input.email ?? contact.email,
-      });
-    } else if (!contact.linkedin?.trim()) {
-      throw new Error("LinkedIn URL required — add their profile to your network");
+    const patch: Partial<Contact> = {};
+    if (input.linkedin) patch.linkedin = input.linkedin;
+    if (input.email) patch.email = input.email;
+    if (input.title) patch.title = input.title;
+    if (input.company) patch.company = input.company;
+    if (contact.autoCreated && (input.linkedin || input.email || input.title)) {
+      patch.autoCreated = false;
+    }
+    if (Object.keys(patch).length > 0) {
+      contact = updateContact(userId, contact.id, patch);
     }
   }
 

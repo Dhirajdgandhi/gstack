@@ -67,23 +67,35 @@ async function cmdLogin(args: string[]) {
 }
 
 async function cmdCalendarSync() {
-  const r = await api<{ count: number; calendarLabel: string; linkSuggestions: unknown[] }>("/calendar/sync", {
+  const r = await api<{
+    count: number;
+    calendarLabel: string;
+    linkSuggestions: unknown[];
+    contactsCreated: number;
+    meetingsLinked: number;
+  }>("/calendar/sync", {
     method: "POST",
   });
   console.log(`Synced ${r.count} events from ${r.calendarLabel}`);
+  if (r.contactsCreated) console.log(`Added ${r.contactsCreated} people to network`);
+  if (r.meetingsLinked) console.log(`Linked ${r.meetingsLinked} meeting ↔ contact pairs`);
   if (r.linkSuggestions.length) {
-    console.log(`${r.linkSuggestions.length} attendee(s) need LinkedIn — run: network-hub calendar link-suggestions`);
+    console.log(`${r.linkSuggestions.length} profile(s) need details — run: network-hub calendar incomplete-profiles`);
   }
 }
 
 async function cmdLinkSuggestions() {
-  const { suggestions } = await api<{ suggestions: Array<Record<string, string>> }>("/calendar/link-suggestions");
+  const { suggestions } = await api<{
+    suggestions: Array<Record<string, string | string[] | undefined>>;
+  }>("/calendar/link-suggestions");
   if (!suggestions.length) {
-    console.log("All upcoming meetings have LinkedIn coverage.");
+    console.log("All profiles look complete for upcoming meetings.");
     return;
   }
   for (const s of suggestions) {
-    console.log(`- ${s.personName} · ${s.meetingTitle} · ${s.reason}`);
+    const missing = Array.isArray(s.missingFields) ? s.missingFields.join(", ") : "";
+    console.log(`- ${s.personName} · ${s.meetingTitle} · missing: ${missing || s.reason}`);
+    if (s.contactId) console.log(`  contact: ${s.contactId}`);
     console.log(`  meeting: ${s.meetingId}`);
   }
 }
@@ -153,8 +165,9 @@ Auth:
   login --username U --password P     Save JWT to ~/.network-hub/cli-token
 
 Calendar:
-  calendar sync                       Sync Axon AI shared calendar
-  calendar link-suggestions           Who needs LinkedIn added
+  calendar sync                       Sync Axon AI shared calendar (auto-adds network)
+  calendar link-suggestions           Profiles missing details for upcoming meetings
+  calendar incomplete-profiles        Alias for link-suggestions
 
 Contacts:
   contacts list [--query Q]           List your network
@@ -179,7 +192,7 @@ try {
     await cmdLogin(process.argv.slice(2));
   } else if (domain === "calendar" && sub === "sync") {
     await cmdCalendarSync();
-  } else if (domain === "calendar" && sub === "link-suggestions") {
+  } else if (domain === "calendar" && (sub === "link-suggestions" || sub === "incomplete-profiles")) {
     await cmdLinkSuggestions();
   } else if (domain === "contacts" && sub === "list") {
     await cmdContactsList(rest);

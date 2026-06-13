@@ -44,6 +44,11 @@ export default function ContactList({ contacts }: Props) {
                     Private
                   </span>
                 )}
+                {c.autoCreated && (
+                  <span className="badge warn" style={{ marginLeft: "0.5rem" }}>
+                    Needs info
+                  </span>
+                )}
               </div>
               {c.tags.length > 0 && (
                 <div style={{ marginTop: "0.35rem" }}>

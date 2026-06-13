@@ -1,6 +1,7 @@
 import { config } from "../config";
 import { getGoals, saveContact, saveDebrief } from "../db";
 import type { AgentResult, Contact, Debrief, Meeting } from "../types";
+import { inferGoalsFromContact, syncContactAndUserGoals } from "./goals";
 
 interface ContactEnrichment {
   suggestedTags?: string[];
@@ -65,8 +66,8 @@ function heuristicContactEnrichment(contact: Contact, goals: string[]): ContactE
 
   if (suggestedTags.length) updates.push(`Suggested tags: ${suggestedTags.join(", ")}`);
 
-  const goalTags = goals.filter((g) => !contact.goalTags.includes(g)).slice(0, 2);
-  if (goalTags.length) updates.push(`Aligned with your goals: ${goalTags.join(", ")}`);
+  const goalTags = inferGoalsFromContact(contact).filter((g) => !contact.goalTags.includes(g));
+  if (goalTags.length) updates.push(`Aligned with goals: ${goalTags.join(", ")}`);
 
   let profileSummary = contact.profileSummary;
   if (!profileSummary && contact.linkedinProfile?.headline) {
@@ -76,7 +77,7 @@ function heuristicContactEnrichment(contact: Contact, goals: string[]): ContactE
 
   return {
     suggestedTags: suggestedTags.length ? suggestedTags : undefined,
-    goalTags: goalTags.length ? [...contact.goalTags, ...goalTags] : undefined,
+    goalTags: goalTags.length ? [...new Set([...contact.goalTags, ...goalTags])] : undefined,
     profileSummary: profileSummary !== contact.profileSummary ? profileSummary : undefined,
     message: updates.length ? updates.join(". ") : "Contact saved — no gaps to fill.",
   };
@@ -168,7 +169,29 @@ Only suggest fields that are missing or thin. Never invent facts not supported b
   }
 
   patched.updatedAt = new Date().toISOString();
-  const saved = applied.length > 0 ? saveContact(patched) : contact;
+  let saved = applied.length > 0 ? saveContact(patched) : contact;
+
+  const synced = syncContactAndUserGoals(contact.ownerId, saved);
+  if (
+    synced.addedGoals.length > 0 ||
+    synced.contact.goalTags.length > saved.goalTags.length
+  ) {
+    saved = saveContact(synced.contact);
+    if (synced.addedGoals.length > 0) {
+      applied.push({
+        field: "userGoals",
+        label: "Advisor goals",
+        value: synced.addedGoals,
+      });
+    }
+    if (synced.contact.goalTags.length > contact.goalTags.length) {
+      applied.push({
+        field: "goalTags",
+        label: "Goal alignment",
+        value: synced.contact.goalTags,
+      });
+    }
+  }
 
   return {
     contact: saved,

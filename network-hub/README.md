@@ -65,4 +65,17 @@ web/      React + Vite — dashboard, network, advisor, settings
 cli/      network-hub.ts — terminal entrypoint
 ```
 
-Data: `~/.network-hub/data.db`
+Data: `~/.network-hub/data.db` (local) · `/tmp/network-hub` on Vercel (ephemeral — see [DEPLOY.md](./DEPLOY.md))
+
+## Deploy on Vercel
+
+See **[DEPLOY.md](./DEPLOY.md)** for full steps. Summary:
+
+1. Set Vercel **Root Directory** to `network-hub`
+2. Add env vars: `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+3. Deploy — build uses `npm run build --prefix web` (no Bun required at build time)
+4. API runs as Bun serverless at `/api/*`
+
+```bash
+cd network-hub && npx vercel --prod
+```

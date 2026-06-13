@@ -9,6 +9,9 @@ function formatWhen(iso: string): string {
 function prepBadge(m: Meeting) {
   if (m.debriefComplete) return <span className="badge ready">Debriefed</span>;
   if (m.prepStatus === "ready") return <span className="badge ready">Prep ready</span>;
+  if ((m.teamAgendaCount ?? 0) > 0) {
+    return <span className="badge ready">{m.teamAgendaCount} agenda</span>;
+  }
   if (m.contactIds.length === 0) return <span className="badge warn">Link contacts</span>;
   return <span className="badge">Needs prep</span>;
 }

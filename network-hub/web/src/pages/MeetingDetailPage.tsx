@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import AgentUpdates from "../components/AgentUpdates";
 import FormattedNotesField from "../components/FormattedNotesField";
 import MarkdownContent from "../components/MarkdownContent";
+import TeamAgendaPanel from "../components/TeamAgendaPanel";
 import type { AgentResult, Contact, Debrief, LinkSuggestion, Meeting, MeetingPrep } from "../types";
 
 function linesToArray(text: string): string[] {
@@ -142,11 +143,16 @@ export default function MeetingDetailPage() {
 
       {linkPrompt && (
         <form className="card banner-warn" onSubmit={saveLinkedIn}>
-          <strong>
-            {linkPrompt.reason === "no_contact" ? "Add" : "Complete"} {linkPrompt.personName} on LinkedIn
-          </strong>
+          <strong>Complete profile for {linkPrompt.personName}</strong>
           <p className="hint" style={{ margin: "0.5rem 0" }}>
-            This meeting includes {linkPrompt.personName}. Add their LinkedIn so prep and debrief stay useful.
+            {linkPrompt.contactId ? (
+              <>
+                Already in your network — add LinkedIn or{" "}
+                <Link to={`/network/${linkPrompt.contactId}`}>edit contact</Link>.
+              </>
+            ) : (
+              <>This meeting includes {linkPrompt.personName}. Add what you know — LinkedIn helps most.</>
+            )}
           </p>
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
             <input
@@ -181,6 +187,8 @@ export default function MeetingDetailPage() {
           ))}
         </div>
       )}
+
+      {!ended && id && <TeamAgendaPanel meetingId={id} />}
 
       {prep && !ended && (
         <div className="card">

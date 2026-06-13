@@ -21,6 +21,7 @@ export function createContact(
     enrichedFrom?: Contact["enrichedFrom"];
     enrichedAt?: string;
     isPrivate?: boolean;
+    autoCreated?: boolean;
   },
 ): Contact {
   const now = new Date().toISOString();
@@ -45,6 +46,7 @@ export function createContact(
     profileSummary: input.profileSummary,
     enrichedFrom: input.enrichedFrom ?? "manual",
     enrichedAt: input.enrichedAt,
+    autoCreated: input.autoCreated,
     createdAt: now,
     updatedAt: now,
   };

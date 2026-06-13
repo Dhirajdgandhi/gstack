@@ -9,17 +9,20 @@ import type {
   GoogleTokens,
   Meeting,
   MeetingPrep,
+  RefinedTeamAgenda,
+  TeamAgendaItem,
   User,
+  Conversation,
 } from "./types";
 
-const DB_PATH = `${config.dataDir}/data.db`;
+const DB_PATH = () => `${config.dataDir}/data.db`;
 
 let db: Database;
 
 export function getDb(): Database {
   if (!db) {
     mkdirSync(config.dataDir, { recursive: true });
-    db = new Database(DB_PATH);
+    db = new Database(DB_PATH());
     migrate(db);
   }
   return db;
@@ -94,6 +97,33 @@ function migrate(database: Database): void {
       PRIMARY KEY (user_id, key)
     );
   `);
+
+  if (current < 3) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS team_agenda_items (
+        id TEXT PRIMARY KEY,
+        meeting_id TEXT NOT NULL,
+        data TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_team_agenda_meeting ON team_agenda_items(meeting_id);
+      CREATE TABLE IF NOT EXISTS team_agenda_refined (
+        meeting_id TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      );
+    `);
+    database.exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (3)`);
+  }
+
+  if (current < 4) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_conversations_contact ON conversations(json_extract(data, '$.contactId'));
+    `);
+    database.exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (4)`);
+  }
 }
 
 function row<T>(data: string): T {
@@ -241,6 +271,14 @@ export function getMeeting(userId: string, id: string): Meeting | null {
   return m.ownerId === userId ? m : null;
 }
 
+/** Any team member's synced row for a shared calendar meeting (same gcal id). */
+export function getMeetingShared(meetingId: string): Meeting | null {
+  const r = getDb().query("SELECT data FROM meetings WHERE id = ? LIMIT 1").get(meetingId) as {
+    data: string;
+  } | null;
+  return r ? row<Meeting>(r.data) : null;
+}
+
 export function upsertMeetings(userId: string, meetings: Meeting[]): number {
   const stmt = getDb().query("INSERT OR REPLACE INTO meetings (id, owner_id, data) VALUES (?, ?, ?)");
   for (const m of meetings) stmt.run(m.id, userId, JSON.stringify(m));
@@ -379,4 +417,92 @@ export function dismissAdvisor(userId: string, id: string, days = 30): void {
   until.setDate(until.getDate() + days);
   s.dismissedUntil = until.toISOString();
   getDb().query("INSERT OR REPLACE INTO advisor (id, owner_id, data) VALUES (?, ?, ?)").run(id, userId, JSON.stringify(s));
+}
+
+// ─── Team agenda (shared by meeting id) ───────────────────────
+
+export function listTeamAgendaItems(meetingId: string): TeamAgendaItem[] {
+  return getDb()
+    .query("SELECT data FROM team_agenda_items WHERE meeting_id = ? ORDER BY json_extract(data, '$.createdAt')")
+    .all(meetingId)
+    .map((r) => row<TeamAgendaItem>(r.data as string))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function saveTeamAgendaItem(item: TeamAgendaItem): TeamAgendaItem {
+  getDb()
+    .query("INSERT OR REPLACE INTO team_agenda_items (id, meeting_id, data) VALUES (?, ?, ?)")
+    .run(item.id, item.meetingId, JSON.stringify(item));
+  return item;
+}
+
+export function deleteTeamAgendaItem(meetingId: string, itemId: string): boolean {
+  const r = getDb().query("DELETE FROM team_agenda_items WHERE id = ? AND meeting_id = ?").run(itemId, meetingId);
+  return r.changes > 0;
+}
+
+export function countTeamAgendaItems(meetingId: string): number {
+  const r = getDb()
+    .query("SELECT COUNT(*) as c FROM team_agenda_items WHERE meeting_id = ?")
+    .get(meetingId) as { c: number };
+  return r.c;
+}
+
+export function getRefinedTeamAgenda(meetingId: string): RefinedTeamAgenda | null {
+  const r = getDb().query("SELECT data FROM team_agenda_refined WHERE meeting_id = ?").get(meetingId) as {
+    data: string;
+  } | null;
+  return r ? row<RefinedTeamAgenda>(r.data) : null;
+}
+
+export function saveRefinedTeamAgenda(refined: RefinedTeamAgenda): RefinedTeamAgenda {
+  getDb()
+    .query("INSERT OR REPLACE INTO team_agenda_refined (meeting_id, data) VALUES (?, ?)")
+    .run(refined.meetingId, JSON.stringify(refined));
+  return refined;
+}
+
+export function deleteRefinedTeamAgenda(meetingId: string): void {
+  getDb().query("DELETE FROM team_agenda_refined WHERE meeting_id = ?").run(meetingId);
+}
+
+// ─── Conversations (team + private) ───────────────────────────
+
+export function saveConversation(conversation: Conversation): Conversation {
+  getDb()
+    .query("INSERT OR REPLACE INTO conversations (id, data) VALUES (?, ?)")
+    .run(conversation.id, JSON.stringify(conversation));
+  return conversation;
+}
+
+export function getConversation(id: string): Conversation | null {
+  const r = getDb().query("SELECT data FROM conversations WHERE id = ?").get(id) as { data: string } | null;
+  return r ? row<Conversation>(r.data) : null;
+}
+
+export function deleteConversation(id: string): void {
+  getDb().query("DELETE FROM conversations WHERE id = ?").run(id);
+}
+
+/** Team-visible + caller's private conversations for a contact. */
+export function listConversationsForContact(userId: string, contactId: string): Conversation[] {
+  return getDb()
+    .query("SELECT data FROM conversations")
+    .all()
+    .map((r) => row<Conversation>(r.data as string))
+    .filter(
+      (c) =>
+        c.contactId === contactId &&
+        (c.visibility === "team" || c.addedByUserId === userId),
+    )
+    .sort((a, b) => (b.occurredAt ?? b.createdAt).localeCompare(a.occurredAt ?? a.createdAt));
+}
+
+export function listConversationsForUser(userId: string): Conversation[] {
+  return getDb()
+    .query("SELECT data FROM conversations")
+    .all()
+    .map((r) => row<Conversation>(r.data as string))
+    .filter((c) => c.visibility === "team" || c.addedByUserId === userId)
+    .sort((a, b) => (b.occurredAt ?? b.createdAt).localeCompare(a.occurredAt ?? a.createdAt));
 }

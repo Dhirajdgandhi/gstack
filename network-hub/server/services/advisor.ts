@@ -7,15 +7,23 @@ import {
   saveAdvisorSuggestions,
 } from "../db";
 import type { AdvisorSuggestion, Contact } from "../types";
+import {
+  contactSupportsGoal,
+  countContactsForGoal,
+  syncGoalsFromNetwork,
+} from "./goals";
 
 const STALE_DAYS = 90;
 
 export function computeAdvisorSuggestions(userId: string): AdvisorSuggestion[] {
+  syncGoalsFromNetwork(userId);
+
   const contacts = listContacts(userId);
   const followUps = listFollowUps(userId, true);
   const goals = getGoals(userId);
   const now = Date.now();
   const suggestions: AdvisorSuggestion[] = [];
+  const doubleDownSeen = new Set<string>();
 
   for (const c of contacts) {
     const last = c.lastTouchedAt ? new Date(c.lastTouchedAt).getTime() : new Date(c.createdAt).getTime();
@@ -33,17 +41,36 @@ export function computeAdvisorSuggestions(userId: string): AdvisorSuggestion[] {
     }
   }
 
-  const tagCounts = countTags(contacts);
   for (const goal of goals) {
-    const tag = goal.toLowerCase();
-    if ((tagCounts[tag] ?? 0) === 0) {
+    const count = countContactsForGoal(contacts, goal);
+    if (count === 0) {
       suggestions.push({
         id: crypto.randomUUID(),
         ownerId: userId,
         type: "gap",
         title: `Add a ${goal} contact`,
-        rationale: `Your private network has no contacts tagged "${goal}".`,
+        rationale: `Your network has no one aligned with "${goal}" yet — tag contacts or add someone in this space.`,
         priority: 4,
+        archetype: goal,
+      });
+    }
+  }
+
+  for (const c of contacts) {
+    for (const goal of goals) {
+      if (!contactSupportsGoal(c, goal)) continue;
+      const key = `${c.id}:${goal.toLowerCase()}`;
+      if (doubleDownSeen.has(key)) continue;
+      doubleDownSeen.add(key);
+      const tagHint = c.tags.length ? c.tags.join(", ") : c.title ?? "network fit";
+      suggestions.push({
+        id: crypto.randomUUID(),
+        ownerId: userId,
+        type: "double-down",
+        title: `Double down with ${c.name} for ${goal}`,
+        rationale: `${c.name} (${tagHint}) supports your ${goal} goal — schedule a focused conversation.`,
+        priority: 3,
+        contactId: c.id,
         archetype: goal,
       });
     }
@@ -75,16 +102,9 @@ export function computeAdvisorSuggestions(userId: string): AdvisorSuggestion[] {
     });
   }
 
+  suggestions.sort((a, b) => b.priority - a.priority);
   saveAdvisorSuggestions(userId, suggestions);
   return suggestions;
-}
-
-function countTags(contacts: Contact[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const c of contacts) {
-    for (const t of c.tags) out[t.toLowerCase()] = (out[t.toLowerCase()] ?? 0) + 1;
-  }
-  return out;
 }
 
 export function refreshAdvisor(userId: string): AdvisorSuggestion[] {
@@ -92,7 +112,10 @@ export function refreshAdvisor(userId: string): AdvisorSuggestion[] {
 }
 
 export function getSuggestions(userId: string): AdvisorSuggestion[] {
+  syncGoalsFromNetwork(userId);
   const existing = listAdvisorSuggestions(userId);
   if (existing.length === 0) return computeAdvisorSuggestions(userId);
   return existing;
 }
+
+export { syncGoalsFromNetwork, getAllGoalOptions } from "./goals";

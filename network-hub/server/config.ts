@@ -28,18 +28,44 @@ function loadDotEnv(): void {
 
 loadDotEnv();
 
+function vercelOrigin(): string | null {
+  const host = process.env.VERCEL_URL;
+  return host ? `https://${host}` : null;
+}
+
+export function getAppUrl(): string {
+  return process.env.APP_URL ?? vercelOrigin() ?? "http://localhost:5173";
+}
+
+export function getApiUrl(): string {
+  return process.env.API_URL ?? vercelOrigin() ?? `http://localhost:${Number(process.env.PORT ?? 8787)}`;
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 8787),
-  appUrl: process.env.APP_URL ?? "http://localhost:5173",
-  apiUrl: process.env.API_URL ?? "http://localhost:8787",
-  dataDir: process.env.NETWORK_HUB_DATA ?? join(homedir(), ".network-hub"),
+
+  get appUrl(): string {
+    return getAppUrl();
+  },
+
+  get apiUrl(): string {
+    return getApiUrl();
+  },
+
+  get dataDir(): string {
+    if (process.env.NETWORK_HUB_DATA) return process.env.NETWORK_HUB_DATA;
+    if (process.env.VERCEL) return "/tmp/network-hub";
+    return join(homedir(), ".network-hub");
+  },
 
   jwtSecret: process.env.JWT_SECRET ?? "",
   jwtExpiresSec: Number(process.env.JWT_EXPIRES_SEC ?? 60 * 60 * 24 * 7),
 
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-  googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ?? "http://localhost:8787/api/auth/google/callback",
+  get googleRedirectUri(): string {
+    return process.env.GOOGLE_REDIRECT_URI ?? `${getApiUrl()}/api/auth/google/callback`;
+  },
   googleCalendarIdOrUrl: process.env.GOOGLE_CALENDAR_ID ?? process.env.GOOGLE_CALENDAR_URL ?? "",
 
   proxycurlApiKey: process.env.PROXYCURL_API_KEY ?? "",
@@ -49,6 +75,9 @@ export const config = {
 
 export function ensureJwtSecret(): string {
   if (config.jwtSecret) return config.jwtSecret;
+  if (process.env.VERCEL) {
+    throw new Error("JWT_SECRET is required on Vercel — set it in Project Environment Variables");
+  }
   const secretPath = join(config.dataDir, ".jwt-secret");
   try {
     const existing = readFileSync(secretPath, "utf-8").trim();
@@ -74,6 +103,7 @@ export function getConfigStatus(): ConfigStatus {
   const missing: string[] = [];
   if (!config.googleClientId) missing.push("GOOGLE_CLIENT_ID");
   if (!config.googleClientSecret) missing.push("GOOGLE_CLIENT_SECRET");
+  if (process.env.VERCEL && !process.env.JWT_SECRET) missing.push("JWT_SECRET");
   ensureJwtSecret();
 
   return {
@@ -90,3 +120,5 @@ export function getConfigStatus(): ConfigStatus {
     missing,
   };
 }
+
+export { AXON_AI_CALENDAR_ID };

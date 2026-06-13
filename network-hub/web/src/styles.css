@@ -541,8 +541,102 @@ input.readonly {
   border-top: none;
 }
 
+.agenda-contributions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.agenda-contributions li {
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.agenda-item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.badge.secondary {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.team-agenda .refined-agenda {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
 .formatted-notes textarea {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.9rem;
+}
+
+.profile-completion-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: min(100%, 28rem);
+  flex: 1;
+}
+
+.profile-completion-fields .btn {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.meeting-link-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.meeting-link-list li {
+  margin: 0.35rem 0;
+}
+
+.conversations-panel {
+  margin-top: 1.5rem;
+}
+
+.conversation-list {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.conversation-item {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.conversation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.visibility-badge.team {
+  color: var(--accent);
+}
+
+.visibility-badge.private {
+  color: var(--muted);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+  margin-left: 0.5rem;
 }
 
