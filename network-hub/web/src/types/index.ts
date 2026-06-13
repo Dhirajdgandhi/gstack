@@ -186,5 +186,6 @@ export interface ConfigStatus {
   googleRedirectUri: string;
   googleCalendarId: string;
   googleCalendarLabel: string;
+  teamConfigured: boolean;
   missing: string[];
 }

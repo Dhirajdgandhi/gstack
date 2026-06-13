@@ -1,5 +1,8 @@
 import { AuthError, ForbiddenError, authenticate, requireAuth } from "./auth/middleware";
-import { signOAuthState, signToken, verifyOAuthState, verifyToken } from "./auth/jwt";
+import { exchangeGoogleCode as exchangeGoogleAuthCode, fetchGoogleUserInfo, getGoogleAuthUrl } from "./auth/google-auth";
+import { isTeamMember } from "./lib/team-access";
+import { signOAuthState, verifyOAuthState } from "./auth/oauth-state";
+import { signToken, verifyToken } from "./auth/jwt";
 import { hashPassword, validatePassword, validateUsername, verifyPassword } from "./auth/passwords";
 import { config, getConfigStatus } from "./config";
 import {
@@ -12,6 +15,7 @@ import {
   getGoogleTokens,
   getMeeting,
   getMeetingShared,
+  getUserById,
   getUserByUsername,
   getUserMeta,
   listContacts,
@@ -28,11 +32,11 @@ import { getSuggestions, refreshAdvisor, syncGoalsFromNetwork, getAllGoalOptions
 import { createContact, updateContact } from "./services/contacts";
 import { syncContactAndUserGoals } from "./services/goals";
 import {
-  exchangeGoogleCode,
-  getGoogleAuthUrl,
+  exchangeGoogleCode as saveCalendarTokens,
   isGoogleConnected,
   syncGoogleCalendar,
 } from "./services/google-calendar";
+import { findOrCreateGoogleUser } from "./services/google-users";
 import { computeLinkSuggestions, linkPersonToMeeting } from "./services/link-suggestions";
 import {
   createConversation,
@@ -90,76 +94,115 @@ export async function handleApiRequest(req: Request): Promise<Response> {
     if (path === "/api/health") return json({ ok: true });
     if (path === "/api/config/status") return json(getConfigStatus());
 
+    // Google Sign-In (primary auth)
+    if (path === "/api/auth/google/login" && req.method === "GET") {
+      if (!config.googleClientId) return err("Google Sign-In not configured — add GOOGLE_CLIENT_ID to .env", 503);
+      const state = signOAuthState("login");
+      return Response.redirect(getGoogleAuthUrl(state));
+    }
+
     if (path === "/api/auth/signup" && req.method === "POST") {
+      if (!config.allowPasswordAuth) return err("Sign up is disabled — use Google Sign-In", 403);
       const body = await parseBody<{ username: string; password: string }>(req);
       validateUsername(body.username);
       validatePassword(body.password);
       if (getUserByUsername(body.username)) return err("Username already taken", 409);
       const user = createUser(body.username, await hashPassword(body.password));
-      const token = signToken({ id: user.id, username: user.username });
-      return json({ token, user: { id: user.id, username: user.username } }, 201);
+      const token = signToken({ id: user.id, username: user.username, email: user.email });
+      return json({ token, user: { id: user.id, username: user.username, email: user.email } }, 201);
     }
 
     if (path === "/api/auth/login" && req.method === "POST") {
+      if (!config.allowPasswordAuth) return err("Password sign-in is disabled — use Google Sign-In", 403);
       const body = await parseBody<{ username: string; password: string }>(req);
       const user = getUserByUsername(body.username);
-      if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
+      if (!user || !user.passwordHash || !(await verifyPassword(body.password, user.passwordHash))) {
         return err("Invalid username or password", 401);
       }
-      const token = signToken({ id: user.id, username: user.username });
-      return json({ token, user: { id: user.id, username: user.username } });
+      const token = signToken({ id: user.id, username: user.username, email: user.email });
+      return json({ token, user: { id: user.id, username: user.username, email: user.email } });
     }
 
-    // Google OAuth callback (public — state carries user id)
+    // Google OAuth callback — login or calendar reconnect
     if (path === "/api/auth/google/callback" && req.method === "GET") {
       const oauthError = url.searchParams.get("error");
       if (oauthError) {
         const desc = url.searchParams.get("error_description") ?? oauthError;
-        return Response.redirect(
-          `${config.appUrl}/settings?google=error&reason=${encodeURIComponent(desc)}`,
-        );
+        return Response.redirect(`${config.appUrl}/login?error=${encodeURIComponent(desc)}`);
       }
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
       if (!code || !state) {
         return Response.redirect(
-          `${config.appUrl}/settings?google=error&reason=${encodeURIComponent("Missing code or state from Google")}`,
+          `${config.appUrl}/login?error=${encodeURIComponent("Missing code or state from Google")}`,
         );
       }
-      const userId = verifyOAuthState(state);
-      if (!userId) {
+      const oauthState = verifyOAuthState(state);
+      if (!oauthState) {
         return Response.redirect(
-          `${config.appUrl}/settings?google=error&reason=${encodeURIComponent("OAuth session expired — try Connect again")}`,
+          `${config.appUrl}/login?error=${encodeURIComponent("Sign-in session expired — try again")}`,
         );
       }
+
       try {
-        await exchangeGoogleCode(code, userId);
+        const tokenData = await exchangeGoogleAuthCode(code);
+        const profile = await fetchGoogleUserInfo(tokenData.access_token);
+
+        if (oauthState.purpose === "login") {
+          const user = findOrCreateGoogleUser(profile, tokenData);
+          const jwt = signToken({
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            displayName: user.displayName,
+          });
+          return Response.redirect(`${config.appUrl}/login?token=${encodeURIComponent(jwt)}`);
+        }
+
+        // Calendar reconnect for already-signed-in user
+        const userId = oauthState.userId!;
+        await saveCalendarTokens(code, userId);
         return Response.redirect(`${config.appUrl}/settings?google=connected`);
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Token exchange failed";
-        return Response.redirect(
-          `${config.appUrl}/settings?google=error&reason=${encodeURIComponent(message)}`,
-        );
+        const message = e instanceof Error ? e.message : "Google sign-in failed";
+        const dest = oauthState.purpose === "login" ? "/login" : "/settings?google=error";
+        const param = oauthState.purpose === "login" ? "error" : "reason";
+        return Response.redirect(`${config.appUrl}${dest}?${param}=${encodeURIComponent(message)}`);
       }
     }
 
-    // Google OAuth start — token via Authorization header or ?access_token= (browser redirect)
+    // Google OAuth start — reconnect calendar (already signed in)
     if (path === "/api/auth/google/start" && req.method === "GET") {
-      if (!config.googleClientId) return err("Google Calendar not configured — add GOOGLE_CLIENT_ID to .env", 503);
+      if (!config.googleClientId) return err("Google not configured — add GOOGLE_CLIENT_ID to .env", 503);
       const qToken = url.searchParams.get("access_token");
       const authUser = (qToken ? verifyToken(qToken) : null) ?? authenticate(req);
-      if (!authUser || authUser.username === "__oauth__") return err("Authentication required", 401);
-      const state = signOAuthState(authUser.id);
-      return Response.redirect(getGoogleAuthUrl(state));
+      if (!authUser) return err("Authentication required", 401);
+      const full = getUserById(authUser.id);
+      const state = signOAuthState("calendar", authUser.id);
+      return Response.redirect(getGoogleAuthUrl(state, full?.email));
     }
 
     const user = requireAuth(req);
+    const fullUser = getUserById(user.id);
+    const userEmail = fullUser?.email;
+    const onTeam = isTeamMember(userEmail);
 
     if (path === "/api/auth/me" && req.method === "GET") {
       return json({
-        user,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: fullUser?.email,
+          displayName: fullUser?.displayName,
+        },
         googleConnected: isGoogleConnected(user.id),
+        isTeamMember: onTeam,
       });
+    }
+
+    const teamExempt = path === "/api/config/status" || path === "/api/meta";
+    if (!teamExempt && !onTeam) {
+      return err("Team access required — your email is not on TEAM_EMAILS", 403);
     }
 
     // LinkedIn enrich (preview before save)
@@ -206,7 +249,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
     if (path.match(/^\/api\/contacts\/[^/]+\/conversations$/) && req.method === "GET") {
       const id = path.split("/")[3];
       try {
-        return json(getContactConversations(user.id, id));
+        return json(getContactConversations(user.id, id, onTeam));
       } catch (e) {
         return err(e instanceof Error ? e.message : "Error", 404);
       }
@@ -360,7 +403,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
 
     // Conversations (offline chats — private or team-visible)
     if (path === "/api/conversations" && req.method === "GET") {
-      return json(getVisibleConversations(user.id));
+      return json(getVisibleConversations(user.id, onTeam));
     }
     if (path === "/api/conversations" && req.method === "POST") {
       const body = await parseBody<{

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ConfigStatus } from "./types";
 import { AXON_AI_CALENDAR_ID, parseGoogleCalendarId } from "./lib/google-calendar-id";
+import { teamEmailCount } from "./lib/team-access";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -71,6 +72,18 @@ export const config = {
   proxycurlApiKey: process.env.PROXYCURL_API_KEY ?? "",
 
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+
+  /** Comma-separated team roster — only these emails see shared team content. */
+  get teamEmails(): string[] {
+    const raw = process.env.TEAM_EMAILS ?? "";
+    return raw
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  },
+
+  /** Dev-only escape hatch for username/password auth. */
+  allowPasswordAuth: process.env.ALLOW_PASSWORD_AUTH === "1",
 };
 
 export function ensureJwtSecret(): string {
@@ -117,6 +130,7 @@ export function getConfigStatus(): ConfigStatus {
     googleRedirectUri: config.googleRedirectUri,
     googleCalendarId: parseGoogleCalendarId(config.googleCalendarIdOrUrl),
     googleCalendarLabel: "Axon AI",
+    teamConfigured: teamEmailCount() > 0,
     missing,
   };
 }

@@ -70,11 +70,11 @@ export function removeConversation(userId: string, id: string): void {
   deleteConversation(id);
 }
 
-export function getContactConversations(userId: string, contactId: string): Conversation[] {
+export function getContactConversations(userId: string, contactId: string, canSeeTeam: boolean): Conversation[] {
   if (!getContact(userId, contactId)) throw new Error("Contact not found");
-  return listConversationsForContact(userId, contactId);
+  return listConversationsForContact(userId, contactId, canSeeTeam);
 }
 
-export function getVisibleConversations(userId: string): Conversation[] {
-  return listConversationsForUser(userId);
+export function getVisibleConversations(userId: string, canSeeTeam: boolean): Conversation[] {
+  return listConversationsForUser(userId, canSeeTeam);
 }

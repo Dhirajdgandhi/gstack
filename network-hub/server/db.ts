@@ -124,6 +124,17 @@ function migrate(database: Database): void {
     `);
     database.exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (4)`);
   }
+
+  if (current < 5) {
+    const cols = database.query("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+    const has = (name: string) => cols.some((c) => c.name === name);
+    if (!has("email")) database.exec(`ALTER TABLE users ADD COLUMN email TEXT`);
+    if (!has("google_id")) database.exec(`ALTER TABLE users ADD COLUMN google_id TEXT`);
+    if (!has("display_name")) database.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`);
+    database.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id) WHERE google_id IS NOT NULL`);
+    database.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL`);
+    database.exec(`INSERT OR REPLACE INTO schema_version (version) VALUES (5)`);
+  }
 }
 
 function row<T>(data: string): T {
@@ -131,6 +142,31 @@ function row<T>(data: string): T {
 }
 
 // ─── Users ───────────────────────────────────────────────────
+
+type UserRow = {
+  id: string;
+  username: string;
+  password_hash: string;
+  created_at: string;
+  email?: string | null;
+  google_id?: string | null;
+  display_name?: string | null;
+};
+
+function rowToUser(r: UserRow): User {
+  return {
+    id: r.id,
+    username: r.username,
+    passwordHash: r.password_hash,
+    email: r.email ?? undefined,
+    googleId: r.google_id ?? undefined,
+    displayName: r.display_name ?? undefined,
+    createdAt: r.created_at,
+  };
+}
+
+const USER_SELECT =
+  "SELECT id, username, password_hash, created_at, email, google_id, display_name FROM users";
 
 export function createUser(username: string, passwordHash: string): User {
   const user: User = {
@@ -145,20 +181,42 @@ export function createUser(username: string, passwordHash: string): User {
   return user;
 }
 
+export function saveUser(user: User): User {
+  getDb()
+    .query(
+      `INSERT OR REPLACE INTO users (id, username, password_hash, created_at, email, google_id, display_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      user.id,
+      user.username,
+      user.passwordHash,
+      user.createdAt,
+      user.email ?? null,
+      user.googleId ?? null,
+      user.displayName ?? null,
+    );
+  return user;
+}
+
 export function getUserByUsername(username: string): User | null {
-  const r = getDb()
-    .query("SELECT id, username, password_hash, created_at FROM users WHERE username = ?")
-    .get(username.trim().toLowerCase()) as { id: string; username: string; password_hash: string; created_at: string } | null;
-  if (!r) return null;
-  return { id: r.id, username: r.username, passwordHash: r.password_hash, createdAt: r.created_at };
+  const r = getDb().query(`${USER_SELECT} WHERE username = ?`).get(username.trim().toLowerCase()) as UserRow | null;
+  return r ? rowToUser(r) : null;
+}
+
+export function getUserByEmail(email: string): User | null {
+  const r = getDb().query(`${USER_SELECT} WHERE email = ?`).get(email.trim().toLowerCase()) as UserRow | null;
+  return r ? rowToUser(r) : null;
+}
+
+export function getUserByGoogleId(googleId: string): User | null {
+  const r = getDb().query(`${USER_SELECT} WHERE google_id = ?`).get(googleId) as UserRow | null;
+  return r ? rowToUser(r) : null;
 }
 
 export function getUserById(id: string): User | null {
-  const r = getDb()
-    .query("SELECT id, username, password_hash, created_at FROM users WHERE id = ?")
-    .get(id) as { id: string; username: string; password_hash: string; created_at: string } | null;
-  if (!r) return null;
-  return { id: r.id, username: r.username, passwordHash: r.password_hash, createdAt: r.created_at };
+  const r = getDb().query(`${USER_SELECT} WHERE id = ?`).get(id) as UserRow | null;
+  return r ? rowToUser(r) : null;
 }
 
 // ─── Google OAuth tokens ─────────────────────────────────────
@@ -485,7 +543,11 @@ export function deleteConversation(id: string): void {
 }
 
 /** Team-visible + caller's private conversations for a contact. */
-export function listConversationsForContact(userId: string, contactId: string): Conversation[] {
+export function listConversationsForContact(
+  userId: string,
+  contactId: string,
+  canSeeTeam: boolean,
+): Conversation[] {
   return getDb()
     .query("SELECT data FROM conversations")
     .all()
@@ -493,16 +555,22 @@ export function listConversationsForContact(userId: string, contactId: string): 
     .filter(
       (c) =>
         c.contactId === contactId &&
-        (c.visibility === "team" || c.addedByUserId === userId),
+        (c.visibility === "private"
+          ? c.addedByUserId === userId
+          : canSeeTeam && c.visibility === "team"),
     )
     .sort((a, b) => (b.occurredAt ?? b.createdAt).localeCompare(a.occurredAt ?? a.createdAt));
 }
 
-export function listConversationsForUser(userId: string): Conversation[] {
+export function listConversationsForUser(userId: string, canSeeTeam: boolean): Conversation[] {
   return getDb()
     .query("SELECT data FROM conversations")
     .all()
     .map((r) => row<Conversation>(r.data as string))
-    .filter((c) => c.visibility === "team" || c.addedByUserId === userId)
+    .filter((c) =>
+      c.visibility === "private"
+        ? c.addedByUserId === userId
+        : canSeeTeam && c.visibility === "team",
+    )
     .sort((a, b) => (b.occurredAt ?? b.createdAt).localeCompare(a.occurredAt ?? a.createdAt));
 }

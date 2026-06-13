@@ -4,45 +4,11 @@ import { collectMeetingPersonNames, namesMatch } from "../lib/meeting-names";
 import { clearGoogleSyncedMeetings, listContacts, listMeetings, upsertMeetings, getGoogleTokens, saveGoogleTokens } from "../db";
 import { computeLinkSuggestions } from "./link-suggestions";
 import { ensureNetworkFromMeetings } from "./network-sync";
+import { exchangeGoogleCode as exchangeCode } from "../auth/google-auth";
 import type { GoogleCalendarEvent, GoogleTokens, LinkSuggestion, Meeting } from "../types";
 
-const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
-
-export function getGoogleAuthUrl(state: string): string {
-  if (!config.googleClientId) throw new Error("GOOGLE_CLIENT_ID not configured");
-  const params = new URLSearchParams({
-    client_id: config.googleClientId,
-    redirect_uri: config.googleRedirectUri,
-    response_type: "code",
-    scope: CALENDAR_SCOPE,
-    access_type: "offline",
-    prompt: "consent",
-    state,
-  });
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
-}
-
 export async function exchangeGoogleCode(code: string, userId: string): Promise<void> {
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: config.googleClientId,
-      client_secret: config.googleClientSecret,
-      redirect_uri: config.googleRedirectUri,
-      grant_type: "authorization_code",
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Google token exchange failed: ${text}`);
-  }
-  const data = (await res.json()) as {
-    access_token: string;
-    refresh_token?: string;
-    expires_in: number;
-  };
+  const data = await exchangeCode(code);
   const existing = getGoogleTokens(userId);
   const tokens: GoogleTokens = {
     userId,
@@ -57,7 +23,7 @@ export async function exchangeGoogleCode(code: string, userId: string): Promise<
 
 async function refreshAccessToken(userId: string): Promise<string> {
   const tokens = getGoogleTokens(userId);
-  if (!tokens) throw new Error("Google Calendar not connected — connect in Settings");
+  if (!tokens) throw new Error("Google Calendar not connected — sign in with Google");
   if (tokens.expiresAt > Date.now() + 60_000) return tokens.accessToken;
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -70,7 +36,7 @@ async function refreshAccessToken(userId: string): Promise<string> {
       grant_type: "refresh_token",
     }),
   });
-  if (!res.ok) throw new Error("Google token refresh failed — reconnect Calendar in Settings");
+  if (!res.ok) throw new Error("Google token refresh failed — sign in with Google again");
   const data = (await res.json()) as { access_token: string; expires_in: number };
   tokens.accessToken = data.access_token;
   tokens.expiresAt = Date.now() + data.expires_in * 1000;

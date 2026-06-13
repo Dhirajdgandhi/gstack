@@ -1,50 +1,69 @@
-import { FormEvent, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, useSearchParams } from "react-router-dom";
+import JarvisBoot from "../components/JarvisBoot";
 import { useAuth } from "../context/AuthContext";
 
 export default function LoginPage() {
-  const { login, user } = useAuth();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const { user, loading, finishGoogleLogin } = useAuth();
+  const [params, setParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [bootDone, setBootDone] = useState(false);
 
-  if (user) return <Navigate to="/" replace />;
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      await login(username, password);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    const token = params.get("token");
+    const oauthError = params.get("error");
+    if (oauthError) {
+      setError(decodeURIComponent(oauthError));
+      setParams({}, { replace: true });
+      return;
     }
+    if (token) {
+      finishGoogleLogin(token)
+        .catch((err) => setError(err instanceof Error ? err.message : "Sign-in failed"))
+        .finally(() => setParams({}, { replace: true }));
+    }
+  }, [params, setParams, finishGoogleLogin]);
+
+  if (!loading && user) return <Navigate to="/" replace />;
+
+  function signInWithGoogle() {
+    window.location.href = "/api/auth/google/login";
   }
 
   return (
-    <div className="auth-page">
-      <form className="auth-card card" onSubmit={handleSubmit}>
-        <h1>Network Hub</h1>
-        <p className="page-sub">Sign in to your private network</p>
-        <div className="field">
-          <label htmlFor="username">Username</label>
-          <input id="username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
+    <div className="auth-page jarvis-auth">
+      <div className="jarvis-grid-bg" aria-hidden />
+      <div className="auth-card card jarvis-panel">
+        <div className="jarvis-logo">
+          <span className="jarvis-logo-mark">◈</span>
+          <div>
+            <h1>JARVIS</h1>
+            <p className="jarvis-tagline">Network Intelligence System</p>
+          </div>
         </div>
-        <div className="field">
-          <label htmlFor="password">Password</label>
-          <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
-        </div>
-        {error && <p className="error">{error}</p>}
-        <button className="btn btn-block" type="submit" disabled={loading}>
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
-        <p className="auth-footer">
-          No account? <Link to="/signup">Create one</Link>
-        </p>
-      </form>
+
+        {!bootDone ? (
+          <JarvisBoot onComplete={() => setBootDone(true)} />
+        ) : (
+          <>
+            <p className="jarvis-voice">
+              Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}.
+              Authenticate to access team intelligence and help build the future.
+            </p>
+
+            {error && <p className="error jarvis-error">{error}</p>}
+
+            <button className="btn btn-block jarvis-google-btn" type="button" onClick={signInWithGoogle}>
+              <span className="google-g">G</span>
+              Authenticate with Google
+            </button>
+
+            <p className="hint auth-footer">
+              Open sign-in · team content visible only to roster in <code>TEAM_EMAILS</code>
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }

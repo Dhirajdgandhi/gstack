@@ -6,9 +6,13 @@
   "framework": null,
   "bunVersion": "1.x",
   "functions": {
-    "api/**": {
-      "maxDuration": 60
+    "api/**/*.ts": {
+      "maxDuration": 60,
+      "includeFiles": "server/**"
     }
   },
-  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
 }

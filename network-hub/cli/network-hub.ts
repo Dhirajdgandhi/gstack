@@ -52,11 +52,21 @@ function hasFlag(args: string[], name: string): boolean {
 }
 
 async function cmdLogin(args: string[]) {
+  console.log(`Network Hub uses Google Sign-In.
+
+Open the app in your browser and click "Continue with Google".
+After sign-in, copy your token for CLI use:
+
+  localStorage.getItem("network_hub_token")
+
+Or set NETWORK_HUB_TOKEN in your environment.
+
+Dev-only password login (requires ALLOW_PASSWORD_AUTH=1 on server):`);
   const username = flag(args, "--username") ?? flag(args, "-u");
   const password = flag(args, "--password") ?? flag(args, "-p");
   if (!username || !password) {
-    console.error("Usage: network-hub login --username USER --password PASS");
-    process.exit(1);
+    console.log("  network-hub login --username USER --password PASS");
+    return;
   }
   const { token, user } = await api<{ token: string; user: { username: string } }>("/auth/login", {
     method: "POST",

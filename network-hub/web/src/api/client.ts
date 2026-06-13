@@ -12,7 +12,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   const res = await fetch(`/api${path}`, { ...init, headers });
-  const data = await res.json();
+  const text = await res.text();
+  let data: { error?: string } & T;
+  try {
+    data = JSON.parse(text) as typeof data;
+  } catch {
+    const preview = text.slice(0, 80).replace(/\s+/g, " ");
+    throw new Error(
+      res.ok
+        ? "Server returned invalid JSON"
+        : `API error (${res.status}): ${preview.startsWith("<") ? "got HTML instead of JSON — check /api routes on deploy" : preview}`,
+    );
+  }
   if (!res.ok) throw new Error(data.error ?? res.statusText);
   return data as T;
 }
@@ -42,7 +53,13 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ username, password }),
       }),
-    me: () => request<{ user: { id: string; username: string }; googleConnected: boolean }>("/auth/me"),
+    me: () =>
+      request<{
+        user: { id: string; username: string; email?: string; displayName?: string };
+        googleConnected: boolean;
+        isTeamMember: boolean;
+      }>("/auth/me"),
+    googleLoginUrl: () => "/api/auth/google/login",
     googleStart: () => {
       window.location.href = `/api/auth/google/start?token=${authToken}`;
     },

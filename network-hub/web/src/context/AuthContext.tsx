@@ -4,14 +4,16 @@ import { api, setAuthToken } from "../api/client";
 interface User {
   id: string;
   username: string;
+  email?: string;
+  displayName?: string;
 }
 
 interface AuthState {
   user: User | null;
   googleConnected: boolean;
+  isTeamMember: boolean;
   loading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  signup: (username: string, password: string) => Promise<void>;
+  finishGoogleLogin: (token: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -23,61 +25,67 @@ const TOKEN_KEY = "network_hub_token";
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
+  const [isTeamMember, setIsTeamMember] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const applyMe = useCallback(
+    (me: { user: User; googleConnected: boolean; isTeamMember: boolean }) => {
+      setUser(me.user);
+      setGoogleConnected(me.googleConnected);
+      setIsTeamMember(me.isTeamMember);
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) {
       setUser(null);
       setGoogleConnected(false);
+      setIsTeamMember(false);
       setLoading(false);
       return;
     }
     setAuthToken(token);
     try {
       const me = await api.auth.me();
-      setUser(me.user);
-      setGoogleConnected(me.googleConnected);
+      applyMe(me);
     } catch {
       localStorage.removeItem(TOKEN_KEY);
       setAuthToken(null);
       setUser(null);
+      setIsTeamMember(false);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyMe]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const r = await api.auth.login(username, password);
-    localStorage.setItem(TOKEN_KEY, r.token);
-    setAuthToken(r.token);
-    setUser(r.user);
-    const me = await api.auth.me();
-    setGoogleConnected(me.googleConnected);
-  }, []);
-
-  const signup = useCallback(async (username: string, password: string) => {
-    const r = await api.auth.signup(username, password);
-    localStorage.setItem(TOKEN_KEY, r.token);
-    setAuthToken(r.token);
-    setUser(r.user);
-    setGoogleConnected(false);
-  }, []);
+  const finishGoogleLogin = useCallback(
+    async (token: string) => {
+      localStorage.setItem(TOKEN_KEY, token);
+      setAuthToken(token);
+      const me = await api.auth.me();
+      applyMe(me);
+      setLoading(false);
+    },
+    [applyMe],
+  );
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setAuthToken(null);
     setUser(null);
     setGoogleConnected(false);
+    setIsTeamMember(false);
   }, []);
 
   const value = useMemo(
-    () => ({ user, googleConnected, loading, login, signup, logout, refresh }),
-    [user, googleConnected, loading, login, signup, logout, refresh],
+    () => ({ user, googleConnected, isTeamMember, loading, finishGoogleLogin, logout, refresh }),
+    [user, googleConnected, isTeamMember, loading, finishGoogleLogin, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

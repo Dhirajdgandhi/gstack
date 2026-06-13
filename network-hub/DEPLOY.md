@@ -21,8 +21,9 @@ Set in Vercel → Project → Settings → Environment Variables:
 | Variable | Required | Notes |
 |----------|----------|--------|
 | `JWT_SECRET` | **Yes** | Long random string; sessions won't survive without it |
-| `GOOGLE_CLIENT_ID` | For calendar | OAuth Web client |
-| `GOOGLE_CLIENT_SECRET` | For calendar | |
+| `GOOGLE_CLIENT_ID` | **Yes** | OAuth Web client — used for Sign-In + Calendar |
+| `GOOGLE_CLIENT_SECRET` | **Yes** | |
+| `TEAM_EMAILS` | **Yes (prod)** | Comma-separated team roster — only these emails see team intelligence |
 | `GOOGLE_REDIRECT_URI` | Optional | Defaults to `https://<your-domain>/api/auth/google/callback` |
 | `OPENAI_API_KEY` | Optional | AI enrichment on save |
 | `PROXYCURL_API_KEY` | Optional | LinkedIn URL fetch |
@@ -34,6 +35,8 @@ https://your-project.vercel.app/api/auth/google/callback
 ```
 
 Also add the same origin under **Authorized JavaScript origins**.
+
+**Sign-in is Google-only** — any Google account can authenticate. **Team content** (calendar, network, meetings, shared conversations) is visible only to emails listed in `TEAM_EMAILS`. Password login is disabled unless `ALLOW_PASSWORD_AUTH=1` (local dev only).
 
 ## 3. Deploy
 

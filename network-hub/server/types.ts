@@ -2,12 +2,17 @@ export interface User {
   id: string;
   username: string;
   passwordHash: string;
+  email?: string;
+  googleId?: string;
+  displayName?: string;
   createdAt: string;
 }
 
 export interface UserPublic {
   id: string;
   username: string;
+  email?: string;
+  displayName?: string;
 }
 
 export interface GoogleTokens {
@@ -222,5 +227,6 @@ export interface ConfigStatus {
   googleRedirectUri: string;
   googleCalendarId: string;
   googleCalendarLabel: string;
+  teamConfigured: boolean;
   missing: string[];
 }
