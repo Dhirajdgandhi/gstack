@@ -45,11 +45,20 @@ async function refreshAccessToken(userId: string): Promise<string> {
   return tokens.accessToken;
 }
 
-function calendarAccessError(calendarId: string, status: number, body: string): Error {
+function calendarAccessError(calendarId: string, status: number, body: string, userEmail?: string): Error {
+  const who = userEmail ? ` (${userEmail})` : "";
   if (status === 403 || status === 404) {
+    let detail = "";
+    try {
+      const parsed = JSON.parse(body) as { error?: { message?: string } };
+      if (parsed.error?.message) detail = ` Google says: ${parsed.error.message}.`;
+    } catch {
+      // ignore
+    }
     return new Error(
-      `No access to the Axon AI shared calendar (${calendarId}). ` +
-        "Ask the calendar owner to grant your Google account access, then sync again.",
+      `No access to the Axon AI shared calendar${who}. ` +
+        "The calendar owner must invite this Google account to the shared calendar (not just sign-in to the app), then sync again." +
+        detail,
     );
   }
   return new Error(`Google Calendar API error (${status}): ${body}`);
@@ -58,7 +67,7 @@ function calendarAccessError(calendarId: string, status: number, body: string): 
 const PAST_SYNC_DAYS = 90;
 const FUTURE_SYNC_DAYS = 14;
 
-export async function fetchGoogleCalendarEvents(userId: string): Promise<GoogleCalendarEvent[]> {
+export async function fetchGoogleCalendarEvents(userId: string, userEmail?: string): Promise<GoogleCalendarEvent[]> {
   const accessToken = await refreshAccessToken(userId);
   const calendarId = getGoogleCalendarId();
   const timeMin = new Date(Date.now() - PAST_SYNC_DAYS * 86_400_000).toISOString();
@@ -75,10 +84,44 @@ export async function fetchGoogleCalendarEvents(userId: string): Promise<GoogleC
   });
   if (!res.ok) {
     const text = await res.text();
-    throw calendarAccessError(calendarId, res.status, text);
+    throw calendarAccessError(calendarId, res.status, text, userEmail);
   }
   const body = (await res.json()) as { items?: GoogleCalendarEvent[] };
   return body.items ?? [];
+}
+
+export async function probeGoogleCalendarAccess(
+  userId: string,
+  userEmail?: string,
+): Promise<{
+  ok: boolean;
+  calendarId: string;
+  calendarLabel: string;
+  eventCount: number;
+  error?: string;
+  googleStatus?: number;
+}> {
+  const calendarId = getGoogleCalendarId();
+  try {
+    const events = await fetchGoogleCalendarEvents(userId, userEmail);
+    return {
+      ok: true,
+      calendarId,
+      calendarLabel: "Axon AI",
+      eventCount: events.length,
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Calendar probe failed";
+    const statusMatch = message.match(/API error \((\d+)\)/);
+    return {
+      ok: false,
+      calendarId,
+      calendarLabel: "Axon AI",
+      eventCount: 0,
+      error: message,
+      googleStatus: statusMatch ? Number(statusMatch[1]) : message.includes("No access") ? 403 : undefined,
+    };
+  }
 }
 
 function parseEventTime(t?: { dateTime?: string; date?: string }): string {
@@ -135,6 +178,7 @@ export function eventsToMeetings(userId: string, events: GoogleCalendarEvent[]):
 export async function syncGoogleCalendar(
   userId: string,
   username: string,
+  userEmail?: string,
 ): Promise<{
   count: number;
   source: "google";
@@ -145,7 +189,7 @@ export async function syncGoogleCalendar(
   meetingsLinked: number;
 }> {
   const calendarId = getGoogleCalendarId();
-  const events = await fetchGoogleCalendarEvents(userId);
+  const events = await fetchGoogleCalendarEvents(userId, userEmail);
   const fresh = eventsToMeetings(userId, events);
   const existing = new Map(listMeetings(userId, false).map((m) => [m.id, m]));
   const meetings = fresh.map((m) => {

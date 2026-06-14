@@ -57,8 +57,9 @@ export default function DashboardPage() {
       setLinkSuggestions(r.linkSuggestions);
       await load();
     } catch (e) {
-      setSyncNote(e instanceof Error ? e.message : "Sync failed");
-      setJarvisReply("Calendar sync failed. Check Systems → Google connection.");
+      const message = e instanceof Error ? e.message : "Sync failed";
+      setSyncNote(message);
+      setJarvisReply(`Calendar sync failed: ${message}`);
     } finally {
       setSyncing(false);
     }

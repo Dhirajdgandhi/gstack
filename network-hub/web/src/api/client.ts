@@ -152,6 +152,15 @@ export const api = {
     },
   },
   calendar: {
+    status: () =>
+      request<{
+        ok: boolean;
+        calendarId: string;
+        calendarLabel: string;
+        eventCount: number;
+        error?: string;
+        googleStatus?: number;
+      }>("/calendar/status"),
     sync: () =>
       request<{
         count: number;

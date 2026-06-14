@@ -5,6 +5,8 @@ import type { UserPublic } from "../types";
 interface JwtPayload {
   sub: string;
   username: string;
+  email?: string;
+  displayName?: string;
   exp: number;
 }
 
@@ -27,6 +29,8 @@ export function signToken(user: UserPublic): string {
   const payload: JwtPayload = {
     sub: user.id,
     username: user.username,
+    email: user.email,
+    displayName: user.displayName,
     exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7,
   };
   const body = b64url(JSON.stringify(payload));
@@ -45,7 +49,12 @@ export function verifyToken(token: string): UserPublic | null {
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
     const payload = JSON.parse(b64urlDecode(body)) as JwtPayload;
     if (payload.exp < Math.floor(Date.now() / 1000)) return null;
-    return { id: payload.sub, username: payload.username };
+    return {
+      id: payload.sub,
+      username: payload.username,
+      email: payload.email,
+      displayName: payload.displayName,
+    };
   } catch {
     return null;
   }

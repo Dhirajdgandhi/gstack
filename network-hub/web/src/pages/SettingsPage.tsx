@@ -4,15 +4,47 @@ import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import type { ConfigStatus } from "../types";
 
+type CalendarProbe = {
+  ok: boolean;
+  calendarId: string;
+  calendarLabel: string;
+  eventCount: number;
+  error?: string;
+  googleStatus?: number;
+};
+
 export default function SettingsPage() {
   const { user, googleConnected, refresh, logout } = useAuth();
   const [config, setConfig] = useState<ConfigStatus | null>(null);
+  const [calendarProbe, setCalendarProbe] = useState<CalendarProbe | null>(null);
+  const [probing, setProbing] = useState(false);
   const [params] = useSearchParams();
 
   useEffect(() => {
     api.config.status().then(setConfig).catch(console.error);
     if (params.get("google") === "connected") refresh();
   }, [params, refresh]);
+
+  useEffect(() => {
+    if (!googleConnected) {
+      setCalendarProbe(null);
+      return;
+    }
+    setProbing(true);
+    api.calendar
+      .status()
+      .then(setCalendarProbe)
+      .catch((e) =>
+        setCalendarProbe({
+          ok: false,
+          calendarId: config?.googleCalendarId ?? "",
+          calendarLabel: "Axon AI",
+          eventCount: 0,
+          error: e instanceof Error ? e.message : "Calendar check failed",
+        }),
+      )
+      .finally(() => setProbing(false));
+  }, [googleConnected, config?.googleCalendarId, params.get("google")]);
 
   function reconnectCalendar() {
     const token = localStorage.getItem("network_hub_token");
@@ -48,6 +80,28 @@ export default function SettingsPage() {
         {googleConnected ? (
           <>
             <p className="badge ready">Connected</p>
+            {probing && <p className="hint" style={{ marginTop: "0.75rem" }}>Checking Axon AI calendar access…</p>}
+            {calendarProbe && !probing && (
+              <div style={{ marginTop: "0.75rem" }}>
+                {calendarProbe.ok ? (
+                  <p className="badge ready">
+                    Axon AI calendar reachable — {calendarProbe.eventCount} event
+                    {calendarProbe.eventCount === 1 ? "" : "s"} in sync window
+                  </p>
+                ) : (
+                  <div className="card banner-warn" style={{ marginTop: "0.5rem" }}>
+                    <strong>Cannot read Axon AI calendar</strong>
+                    <p style={{ margin: "0.5rem 0 0", fontSize: "0.9rem" }}>{calendarProbe.error}</p>
+                    <p className="hint" style={{ marginTop: "0.75rem" }}>
+                      OAuth only proves Google sign-in worked. You also need an invite to the{" "}
+                      <strong>Axon AI shared calendar</strong> for{" "}
+                      <strong>{user?.email ?? "your Google account"}</strong>. Ask the calendar owner to share it,
+                      then open Google Calendar and confirm it appears under &quot;Other calendars&quot;.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
             <button className="btn secondary" type="button" onClick={reconnectCalendar} style={{ marginTop: "0.75rem" }}>
               Reconnect calendar
             </button>

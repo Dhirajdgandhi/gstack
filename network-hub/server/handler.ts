@@ -34,6 +34,7 @@ import { syncContactAndUserGoals } from "./services/goals";
 import {
   exchangeGoogleCode as saveCalendarTokens,
   isGoogleConnected,
+  probeGoogleCalendarAccess,
   syncGoogleCalendar,
 } from "./services/google-calendar";
 import { findOrCreateGoogleUser } from "./services/google-users";
@@ -184,7 +185,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
 
     const user = requireAuth(req);
     const fullUser = getUserById(user.id);
-    const userEmail = fullUser?.email;
+    const userEmail = fullUser?.email ?? user.email;
     const onTeam = isTeamMember(userEmail);
 
     if (path === "/api/auth/me" && req.method === "GET") {
@@ -192,8 +193,8 @@ export async function handleApiRequest(req: Request): Promise<Response> {
         user: {
           id: user.id,
           username: user.username,
-          email: fullUser?.email,
-          displayName: fullUser?.displayName,
+          email: userEmail,
+          displayName: fullUser?.displayName ?? user.displayName,
         },
         googleConnected: isGoogleConnected(user.id),
         isTeamMember: onTeam,
@@ -295,11 +296,23 @@ export async function handleApiRequest(req: Request): Promise<Response> {
     }
 
     // Calendar
+    if (path === "/api/calendar/status" && req.method === "GET") {
+      if (!isGoogleConnected(user.id)) {
+        return json({
+          ok: false,
+          calendarId: "",
+          calendarLabel: "Axon AI",
+          eventCount: 0,
+          error: "Google Calendar not connected — reconnect in Settings",
+        });
+      }
+      return json(await probeGoogleCalendarAccess(user.id, fullUser?.email));
+    }
     if (path === "/api/calendar/sync" && req.method === "POST") {
       if (!isGoogleConnected(user.id)) {
         return err("Connect Google Calendar first — go to Settings", 400);
       }
-      return json(await syncGoogleCalendar(user.id, user.username));
+      return json(await syncGoogleCalendar(user.id, user.username, fullUser?.email));
     }
     if (path === "/api/calendar/link-suggestions" && req.method === "GET") {
       return json({ suggestions: computeLinkSuggestions(user.id, true) });
