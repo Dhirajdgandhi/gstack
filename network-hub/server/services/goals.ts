@@ -69,9 +69,9 @@ export function contactSupportsGoal(contact: Contact, goal: string): boolean {
 }
 
 /** All goal chips to show: defaults + active + anything inferred from the network. */
-export function getAllGoalOptions(userId: string): string[] {
-  const active = getGoals(userId);
-  const fromNetwork = listContacts(userId).flatMap(inferGoalsFromContact);
+export async function getAllGoalOptions(userId: string): Promise<string[]> {
+  const active = await getGoals(userId);
+  const fromNetwork = (await listContacts(userId)).flatMap(inferGoalsFromContact);
   const seen = new Set<string>();
   const out: string[] = [];
   for (const g of [...DEFAULT_GOAL_OPTIONS, ...active, ...fromNetwork]) {
@@ -88,13 +88,13 @@ export function getAllGoalOptions(userId: string): string[] {
  * After contact attributes change, merge inferred goals into user active goals
  * and return updated contact goalTags.
  */
-export function syncContactAndUserGoals(
+export async function syncContactAndUserGoals(
   userId: string,
   contact: Contact,
-): { contact: Contact; addedGoals: string[] } {
+): Promise<{ contact: Contact; addedGoals: string[] }> {
   const inferred = inferGoalsFromContact(contact);
   const mergedContactTags = [...new Set([...contact.goalTags.map(canonicalGoal), ...inferred])];
-  const active = getGoals(userId);
+  const active = await getGoals(userId);
   const activeLower = new Set(active.map((g) => g.toLowerCase()));
   const addedGoals: string[] = [];
 
@@ -106,7 +106,7 @@ export function syncContactAndUserGoals(
   }
 
   if (addedGoals.length > 0) {
-    setGoals(userId, [...active, ...addedGoals.map(canonicalGoal)]);
+    await setGoals(userId, [...active, ...addedGoals.map(canonicalGoal)]);
   }
 
   return {
@@ -116,13 +116,13 @@ export function syncContactAndUserGoals(
 }
 
 /** Re-scan entire network and activate any goals implied by contact attributes. */
-export function syncGoalsFromNetwork(userId: string): {
+export async function syncGoalsFromNetwork(userId: string): Promise<{
   activeGoals: string[];
   allGoals: string[];
   addedGoals: string[];
-} {
-  const contacts = listContacts(userId);
-  const active = getGoals(userId);
+}> {
+  const contacts = await listContacts(userId);
+  const active = await getGoals(userId);
   const activeLower = new Set(active.map((g) => g.toLowerCase()));
   const addedGoals: string[] = [];
 
@@ -137,11 +137,11 @@ export function syncGoalsFromNetwork(userId: string): {
 
   const nextActive =
     addedGoals.length > 0 ? [...active, ...addedGoals.map(canonicalGoal)] : active;
-  if (addedGoals.length > 0) setGoals(userId, nextActive);
+  if (addedGoals.length > 0) await setGoals(userId, nextActive);
 
   return {
     activeGoals: nextActive,
-    allGoals: getAllGoalOptions(userId),
+    allGoals: await getAllGoalOptions(userId),
     addedGoals: addedGoals.map(canonicalGoal),
   };
 }

@@ -1,4 +1,11 @@
-import { getGoogleTokens, getUserByEmail, getUserByGoogleId, getUserByUsername, saveGoogleTokens, saveUser } from "../db";
+import {
+  getGoogleTokens,
+  getUserByEmail,
+  getUserByGoogleId,
+  getUserByUsername,
+  saveGoogleTokens,
+  saveUser,
+} from "../db";
 import type { GoogleTokens, User } from "../types";
 import type { GoogleTokenResponse, GoogleUserInfo } from "../auth/google-auth";
 
@@ -9,10 +16,10 @@ function deriveUsername(email: string, name?: string): string {
   return fromName.length >= 3 ? fromName.toLowerCase() : `user-${local}`;
 }
 
-function uniqueUsername(base: string): string {
+async function uniqueUsername(base: string): Promise<string> {
   let candidate = base.slice(0, 32);
   let n = 0;
-  while (getUserByUsername(candidate)) {
+  while (await getUserByUsername(candidate)) {
     n += 1;
     candidate = `${base.slice(0, 28)}-${n}`;
   }
@@ -20,15 +27,15 @@ function uniqueUsername(base: string): string {
 }
 
 /** Find or create a user from Google Sign-In. Links calendar tokens on first login. */
-export function findOrCreateGoogleUser(
+export async function findOrCreateGoogleUser(
   profile: GoogleUserInfo,
   tokens: GoogleTokenResponse,
-): User {
+): Promise<User> {
   const email = profile.email.trim().toLowerCase();
-  let user = getUserByGoogleId(profile.sub) ?? getUserByEmail(email);
+  let user = (await getUserByGoogleId(profile.sub)) ?? (await getUserByEmail(email));
 
   if (!user) {
-    const username = uniqueUsername(deriveUsername(email, profile.name));
+    const username = await uniqueUsername(deriveUsername(email, profile.name));
     user = {
       id: crypto.randomUUID(),
       username,
@@ -38,7 +45,7 @@ export function findOrCreateGoogleUser(
       displayName: profile.name,
       createdAt: new Date().toISOString(),
     };
-    saveUser(user);
+    await saveUser(user);
   } else {
     user = {
       ...user,
@@ -46,20 +53,20 @@ export function findOrCreateGoogleUser(
       googleId: user.googleId ?? profile.sub,
       displayName: user.displayName ?? profile.name,
     };
-    saveUser(user);
+    await saveUser(user);
   }
 
   const stored: GoogleTokens = {
     userId: user.id,
     accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token ?? getGoogleTokens(user.id)?.refreshToken ?? "",
+    refreshToken: tokens.refresh_token ?? (await getGoogleTokens(user.id))?.refreshToken ?? "",
     expiresAt: Date.now() + tokens.expires_in * 1000,
     updatedAt: new Date().toISOString(),
   };
   if (!stored.refreshToken) {
     throw new Error("No refresh token — revoke app access in Google Account and sign in again");
   }
-  saveGoogleTokens(stored);
+  await saveGoogleTokens(stored);
 
   return user;
 }

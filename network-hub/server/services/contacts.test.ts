@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { normalizeLinkedInUrl, createContact } from "./contacts";
-import { getDb } from "../db";
+import { ensureDb } from "../db";
 
 describe("contacts", () => {
   test("normalizeLinkedInUrl strips query params", () => {
@@ -9,8 +9,8 @@ describe("contacts", () => {
     );
   });
 
-  test("createContact requires name", () => {
-    getDb();
-    expect(() => createContact("user-1", "testuser", { name: "A" })).toThrow();
+  test("createContact requires name", async () => {
+    await ensureDb();
+    await expect(createContact("user-1", "testuser", { name: "A" })).rejects.toThrow();
   });
 });

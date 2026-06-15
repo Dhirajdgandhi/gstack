@@ -1,7 +1,14 @@
 import { config, getGoogleCalendarId } from "../config";
 import { calendarEventsUrl } from "../lib/google-calendar-id";
 import { collectMeetingPersonNames, namesMatch } from "../lib/meeting-names";
-import { clearGoogleSyncedMeetings, listContacts, listMeetings, upsertMeetings, getGoogleTokens, saveGoogleTokens } from "../db";
+import {
+  clearGoogleSyncedMeetings,
+  listContacts,
+  listMeetings,
+  upsertMeetings,
+  getGoogleTokens,
+  saveGoogleTokens,
+} from "../db";
 import { computeLinkSuggestions } from "./link-suggestions";
 import { ensureNetworkFromMeetings } from "./network-sync";
 import { exchangeGoogleCode as exchangeCode } from "../auth/google-auth";
@@ -9,7 +16,7 @@ import type { GoogleCalendarEvent, GoogleTokens, LinkSuggestion, Meeting } from 
 
 export async function exchangeGoogleCode(code: string, userId: string): Promise<void> {
   const data = await exchangeCode(code);
-  const existing = getGoogleTokens(userId);
+  const existing = await getGoogleTokens(userId);
   const tokens: GoogleTokens = {
     userId,
     accessToken: data.access_token,
@@ -18,11 +25,11 @@ export async function exchangeGoogleCode(code: string, userId: string): Promise<
     updatedAt: new Date().toISOString(),
   };
   if (!tokens.refreshToken) throw new Error("No refresh token — revoke app access in Google Account and reconnect");
-  saveGoogleTokens(tokens);
+  await saveGoogleTokens(tokens);
 }
 
 async function refreshAccessToken(userId: string): Promise<string> {
-  const tokens = getGoogleTokens(userId);
+  const tokens = await getGoogleTokens(userId);
   if (!tokens) throw new Error("Google Calendar not connected — sign in with Google");
   if (tokens.expiresAt > Date.now() + 60_000) return tokens.accessToken;
 
@@ -41,7 +48,7 @@ async function refreshAccessToken(userId: string): Promise<string> {
   tokens.accessToken = data.access_token;
   tokens.expiresAt = Date.now() + data.expires_in * 1000;
   tokens.updatedAt = new Date().toISOString();
-  saveGoogleTokens(tokens);
+  await saveGoogleTokens(tokens);
   return tokens.accessToken;
 }
 
@@ -130,8 +137,8 @@ function parseEventTime(t?: { dateTime?: string; date?: string }): string {
   return new Date().toISOString();
 }
 
-function matchContacts(userId: string, emails: string[], personNames: string[] = []): string[] {
-  const contacts = listContacts(userId);
+async function matchContacts(userId: string, emails: string[], personNames: string[] = []): Promise<string[]> {
+  const contacts = await listContacts(userId);
   const ids = new Set<string>();
   for (const email of emails) {
     const hit = contacts.find((c) => c.email?.toLowerCase() === email.toLowerCase());
@@ -144,35 +151,35 @@ function matchContacts(userId: string, emails: string[], personNames: string[] =
   return [...ids];
 }
 
-export function eventsToMeetings(userId: string, events: GoogleCalendarEvent[]): Meeting[] {
+export async function eventsToMeetings(userId: string, events: GoogleCalendarEvent[]): Promise<Meeting[]> {
   const syncedAt = new Date().toISOString();
-  return events
-    .filter((e) => e.status !== "cancelled")
-    .map((e) => {
-      const emails = (e.attendees ?? [])
-        .map((a) => a.email)
-        .filter((x): x is string => Boolean(x));
-      const displayNames = (e.attendees ?? [])
-        .map((a) => a.displayName?.trim())
-        .filter((x): x is string => Boolean(x));
-      const attendeeNames = collectMeetingPersonNames(e.summary ?? "", displayNames);
-      return {
-        id: `gcal-${e.id}`,
-        ownerId: userId,
-        googleEventId: e.id,
-        title: e.summary ?? "(No title)",
-        start: parseEventTime(e.start),
-        end: parseEventTime(e.end),
-        location: e.location,
-        attendeeEmails: emails,
-        attendeeNames,
-        contactIds: matchContacts(userId, emails, attendeeNames),
-        prepStatus: "none" as const,
-        debriefComplete: false,
-        status: "confirmed" as const,
-        syncedAt,
-      };
+  const meetings: Meeting[] = [];
+  for (const e of events.filter((ev) => ev.status !== "cancelled")) {
+    const emails = (e.attendees ?? [])
+      .map((a) => a.email)
+      .filter((x): x is string => Boolean(x));
+    const displayNames = (e.attendees ?? [])
+      .map((a) => a.displayName?.trim())
+      .filter((x): x is string => Boolean(x));
+    const attendeeNames = collectMeetingPersonNames(e.summary ?? "", displayNames);
+    meetings.push({
+      id: `gcal-${e.id}`,
+      ownerId: userId,
+      googleEventId: e.id,
+      title: e.summary ?? "(No title)",
+      start: parseEventTime(e.start),
+      end: parseEventTime(e.end),
+      location: e.location,
+      attendeeEmails: emails,
+      attendeeNames,
+      contactIds: await matchContacts(userId, emails, attendeeNames),
+      prepStatus: "none" as const,
+      debriefComplete: false,
+      status: "confirmed" as const,
+      syncedAt,
     });
+  }
+  return meetings;
 }
 
 export async function syncGoogleCalendar(
@@ -190,8 +197,8 @@ export async function syncGoogleCalendar(
 }> {
   const calendarId = getGoogleCalendarId();
   const events = await fetchGoogleCalendarEvents(userId, userEmail);
-  const fresh = eventsToMeetings(userId, events);
-  const existing = new Map(listMeetings(userId, false).map((m) => [m.id, m]));
+  const fresh = await eventsToMeetings(userId, events);
+  const existing = new Map((await listMeetings(userId, false)).map((m) => [m.id, m]));
   const meetings = fresh.map((m) => {
     const prev = existing.get(m.id);
     if (!prev) return m;
@@ -203,11 +210,11 @@ export async function syncGoogleCalendar(
       attendeeNames: m.attendeeNames.length > 0 ? m.attendeeNames : prev.attendeeNames ?? [],
     };
   });
-  clearGoogleSyncedMeetings(userId);
-  upsertMeetings(userId, meetings);
+  await clearGoogleSyncedMeetings(userId);
+  await upsertMeetings(userId, meetings);
 
-  const networkSync = ensureNetworkFromMeetings(userId, username, meetings);
-  const linkSuggestions = computeLinkSuggestions(userId, true);
+  const networkSync = await ensureNetworkFromMeetings(userId, username, meetings);
+  const linkSuggestions = await computeLinkSuggestions(userId, true);
   return {
     count: meetings.length,
     source: "google",
@@ -219,8 +226,8 @@ export async function syncGoogleCalendar(
   };
 }
 
-export function isGoogleConnected(userId: string): boolean {
-  return getGoogleTokens(userId) !== null;
+export async function isGoogleConnected(userId: string): Promise<boolean> {
+  return (await getGoogleTokens(userId)) !== null;
 }
 
 export { getGoogleCalendarId };

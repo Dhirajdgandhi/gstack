@@ -6,7 +6,7 @@ import {
   listMeetings,
   saveAdvisorSuggestions,
 } from "../db";
-import type { AdvisorSuggestion, Contact } from "../types";
+import type { AdvisorSuggestion } from "../types";
 import {
   contactSupportsGoal,
   countContactsForGoal,
@@ -15,12 +15,12 @@ import {
 
 const STALE_DAYS = 90;
 
-export function computeAdvisorSuggestions(userId: string): AdvisorSuggestion[] {
-  syncGoalsFromNetwork(userId);
+export async function computeAdvisorSuggestions(userId: string): Promise<AdvisorSuggestion[]> {
+  await syncGoalsFromNetwork(userId);
 
-  const contacts = listContacts(userId);
-  const followUps = listFollowUps(userId, true);
-  const goals = getGoals(userId);
+  const contacts = await listContacts(userId);
+  const followUps = await listFollowUps(userId, true);
+  const goals = await getGoals(userId);
   const now = Date.now();
   const suggestions: AdvisorSuggestion[] = [];
   const doubleDownSeen = new Set<string>();
@@ -90,7 +90,7 @@ export function computeAdvisorSuggestions(userId: string): AdvisorSuggestion[] {
     });
   }
 
-  const upcoming = listMeetings(userId, true);
+  const upcoming = await listMeetings(userId, true);
   if (upcoming.length === 0) {
     suggestions.push({
       id: crypto.randomUUID(),
@@ -103,17 +103,17 @@ export function computeAdvisorSuggestions(userId: string): AdvisorSuggestion[] {
   }
 
   suggestions.sort((a, b) => b.priority - a.priority);
-  saveAdvisorSuggestions(userId, suggestions);
+  await saveAdvisorSuggestions(userId, suggestions);
   return suggestions;
 }
 
-export function refreshAdvisor(userId: string): AdvisorSuggestion[] {
+export async function refreshAdvisor(userId: string): Promise<AdvisorSuggestion[]> {
   return computeAdvisorSuggestions(userId);
 }
 
-export function getSuggestions(userId: string): AdvisorSuggestion[] {
-  syncGoalsFromNetwork(userId);
-  const existing = listAdvisorSuggestions(userId);
+export async function getSuggestions(userId: string): Promise<AdvisorSuggestion[]> {
+  await syncGoalsFromNetwork(userId);
+  const existing = await listAdvisorSuggestions(userId);
   if (existing.length === 0) return computeAdvisorSuggestions(userId);
   return existing;
 }

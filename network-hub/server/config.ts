@@ -42,6 +42,16 @@ export function getApiUrl(): string {
   return process.env.API_URL ?? vercelOrigin() ?? `http://localhost:${Number(process.env.PORT ?? 8787)}`;
 }
 
+export function getDatabaseUrl(): string {
+  if (process.env.DATABASE_URL?.trim()) return process.env.DATABASE_URL.trim();
+  const host = process.env.DATABASE_HOST ?? "localhost";
+  const port = process.env.DATABASE_PORT ?? "5432";
+  const user = process.env.DATABASE_USER ?? "networkhub";
+  const password = process.env.DATABASE_PASSWORD ?? "networkhub";
+  const name = process.env.DATABASE_NAME ?? "networkhub";
+  return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${name}`;
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 8787),
 
@@ -84,6 +94,10 @@ export const config = {
 
   /** Dev-only escape hatch for username/password auth. */
   allowPasswordAuth: process.env.ALLOW_PASSWORD_AUTH === "1",
+
+  get databaseUrl(): string {
+    return getDatabaseUrl();
+  },
 };
 
 export function ensureJwtSecret(): string {

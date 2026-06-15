@@ -14,15 +14,15 @@ import { DEFAULT_GOAL_OPTIONS } from "./goals";
 
 const CONTRIBUTOR_TAG = (username: string) => `by:${username}`;
 
-function assertUpcomingMeeting(meetingId: string): { title: string; start: string; end: string } {
-  const meeting = getMeetingShared(meetingId);
+async function assertUpcomingMeeting(meetingId: string): Promise<{ title: string; start: string; end: string }> {
+  const meeting = await getMeetingShared(meetingId);
   if (!meeting) throw new Error("Meeting not found — sync the Axon AI calendar first");
   if (new Date(meeting.end) < new Date()) throw new Error("Team agenda is only for upcoming meetings");
   return { title: meeting.title, start: meeting.start, end: meeting.end };
 }
 
 /** Suggest thematic tags from item text + user's active goals. */
-export function suggestTagsForText(text: string, userId: string): string[] {
+export async function suggestTagsForText(text: string, userId: string): Promise<string[]> {
   const hay = text.toLowerCase();
   const tags = new Set<string>();
   const goalKeywords: Array<[RegExp, string]> = [
@@ -36,7 +36,7 @@ export function suggestTagsForText(text: string, userId: string): string[] {
   for (const [re, tag] of goalKeywords) {
     if (re.test(hay)) tags.add(tag);
   }
-  for (const g of getGoals(userId)) {
+  for (const g of await getGoals(userId)) {
     if (hay.includes(g.toLowerCase())) tags.add(g);
   }
   return [...tags];
@@ -47,11 +47,11 @@ function mergeTags(username: string, userTags: string[] | undefined, autoTags: s
   return [...out].filter(Boolean);
 }
 
-export function getTeamAgenda(meetingId: string): TeamAgendaBundle {
-  const meta = getMeetingShared(meetingId);
+export async function getTeamAgenda(meetingId: string): Promise<TeamAgendaBundle> {
+  const meta = await getMeetingShared(meetingId);
   return {
-    items: listTeamAgendaItems(meetingId),
-    refined: getRefinedTeamAgenda(meetingId),
+    items: await listTeamAgendaItems(meetingId),
+    refined: await getRefinedTeamAgenda(meetingId),
     meetingTitle: meta?.title,
     meetingStart: meta?.start,
   };
@@ -64,11 +64,11 @@ export async function addTeamAgendaItem(
   text: string,
   userTags?: string[],
 ): Promise<TeamAgendaBundle> {
-  assertUpcomingMeeting(meetingId);
+  await assertUpcomingMeeting(meetingId);
   const trimmed = text.trim();
   if (trimmed.length < 2) throw new Error("Agenda item must be at least 2 characters");
 
-  const autoTags = suggestTagsForText(trimmed, userId);
+  const autoTags = await suggestTagsForText(trimmed, userId);
   const item: TeamAgendaItem = {
     id: crypto.randomUUID(),
     meetingId,
@@ -78,10 +78,10 @@ export async function addTeamAgendaItem(
     tags: mergeTags(username, userTags, autoTags),
     createdAt: new Date().toISOString(),
   };
-  saveTeamAgendaItem(item);
+  await saveTeamAgendaItem(item);
 
   const refined = await refineTeamAgendaAsync(meetingId);
-  return { ...getTeamAgenda(meetingId), refined };
+  return { ...(await getTeamAgenda(meetingId)), refined };
 }
 
 export async function removeTeamAgendaItem(
@@ -89,18 +89,18 @@ export async function removeTeamAgendaItem(
   itemId: string,
   userId: string,
 ): Promise<TeamAgendaBundle> {
-  assertUpcomingMeeting(meetingId);
-  const items = listTeamAgendaItems(meetingId);
+  await assertUpcomingMeeting(meetingId);
+  const items = await listTeamAgendaItems(meetingId);
   const item = items.find((i) => i.id === itemId);
   if (!item) throw new Error("Agenda item not found");
   if (item.addedByUserId !== userId) {
     throw new Error("Only the author can remove this item");
   }
-  deleteTeamAgendaItem(meetingId, itemId);
-  const refined =
-    listTeamAgendaItems(meetingId).length > 0 ? await refineTeamAgendaAsync(meetingId) : null;
-  if (!refined) deleteRefinedTeamAgenda(meetingId);
-  return { ...getTeamAgenda(meetingId), refined };
+  await deleteTeamAgendaItem(meetingId, itemId);
+  const remaining = await listTeamAgendaItems(meetingId);
+  const refined = remaining.length > 0 ? await refineTeamAgendaAsync(meetingId) : null;
+  if (!refined) await deleteRefinedTeamAgenda(meetingId);
+  return { ...(await getTeamAgenda(meetingId)), refined };
 }
 
 async function callOpenAIRefine(
@@ -189,16 +189,16 @@ function heuristicRefine(meetingId: string, meetingTitle: string, items: TeamAge
 }
 
 export async function refineTeamAgendaAsync(meetingId: string): Promise<RefinedTeamAgenda | null> {
-  const meta = assertUpcomingMeeting(meetingId);
-  const items = listTeamAgendaItems(meetingId);
+  const meta = await assertUpcomingMeeting(meetingId);
+  const items = await listTeamAgendaItems(meetingId);
   if (items.length === 0) {
-    deleteRefinedTeamAgenda(meetingId);
+    await deleteRefinedTeamAgenda(meetingId);
     return null;
   }
 
   const ai = await callOpenAIRefine(meta.title, meta.start, items);
   const refined = ai ?? heuristicRefine(meetingId, meta.title, items);
-  saveRefinedTeamAgenda(refined);
+  await saveRefinedTeamAgenda(refined);
   return refined;
 }
 

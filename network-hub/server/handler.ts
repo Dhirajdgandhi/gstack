@@ -9,10 +9,9 @@ import {
   createUser,
   deleteContact,
   dismissAdvisor,
+  ensureDb,
   getContact,
   getDebrief,
-  getGoals,
-  getGoogleTokens,
   getMeeting,
   getMeetingShared,
   getUserById,
@@ -23,6 +22,7 @@ import {
   listMeetings,
   listPastMeetings,
   countTeamAgendaItems,
+  saveContact,
   saveDebrief,
   saveFollowUp,
   setGoals,
@@ -91,11 +91,11 @@ export async function handleApiRequest(req: Request): Promise<Response> {
   const path = url.pathname;
 
   try {
-    // Public
+    if (path !== "/api/health") await ensureDb();
+
     if (path === "/api/health") return json({ ok: true });
     if (path === "/api/config/status") return json(getConfigStatus());
 
-    // Google Sign-In (primary auth)
     if (path === "/api/auth/google/login" && req.method === "GET") {
       if (!config.googleClientId) return err("Google Sign-In not configured — add GOOGLE_CLIENT_ID to .env", 503);
       const state = signOAuthState("login");
@@ -107,8 +107,8 @@ export async function handleApiRequest(req: Request): Promise<Response> {
       const body = await parseBody<{ username: string; password: string }>(req);
       validateUsername(body.username);
       validatePassword(body.password);
-      if (getUserByUsername(body.username)) return err("Username already taken", 409);
-      const user = createUser(body.username, await hashPassword(body.password));
+      if (await getUserByUsername(body.username)) return err("Username already taken", 409);
+      const user = await createUser(body.username, await hashPassword(body.password));
       const token = signToken({ id: user.id, username: user.username, email: user.email });
       return json({ token, user: { id: user.id, username: user.username, email: user.email } }, 201);
     }
@@ -116,7 +116,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
     if (path === "/api/auth/login" && req.method === "POST") {
       if (!config.allowPasswordAuth) return err("Password sign-in is disabled — use Google Sign-In", 403);
       const body = await parseBody<{ username: string; password: string }>(req);
-      const user = getUserByUsername(body.username);
+      const user = await getUserByUsername(body.username);
       if (!user || !user.passwordHash || !(await verifyPassword(body.password, user.passwordHash))) {
         return err("Invalid username or password", 401);
       }
@@ -124,7 +124,6 @@ export async function handleApiRequest(req: Request): Promise<Response> {
       return json({ token, user: { id: user.id, username: user.username, email: user.email } });
     }
 
-    // Google OAuth callback — login or calendar reconnect
     if (path === "/api/auth/google/callback" && req.method === "GET") {
       const oauthError = url.searchParams.get("error");
       if (oauthError) {
@@ -150,7 +149,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
         const profile = await fetchGoogleUserInfo(tokenData.access_token);
 
         if (oauthState.purpose === "login") {
-          const user = findOrCreateGoogleUser(profile, tokenData);
+          const user = await findOrCreateGoogleUser(profile, tokenData);
           const jwt = signToken({
             id: user.id,
             username: user.username,
@@ -160,7 +159,6 @@ export async function handleApiRequest(req: Request): Promise<Response> {
           return Response.redirect(`${config.appUrl}/login?token=${encodeURIComponent(jwt)}`);
         }
 
-        // Calendar reconnect for already-signed-in user
         const userId = oauthState.userId!;
         await saveCalendarTokens(code, userId);
         return Response.redirect(`${config.appUrl}/settings?google=connected`);
@@ -172,19 +170,18 @@ export async function handleApiRequest(req: Request): Promise<Response> {
       }
     }
 
-    // Google OAuth start — reconnect calendar (already signed in)
     if (path === "/api/auth/google/start" && req.method === "GET") {
       if (!config.googleClientId) return err("Google not configured — add GOOGLE_CLIENT_ID to .env", 503);
       const qToken = url.searchParams.get("access_token");
       const authUser = (qToken ? verifyToken(qToken) : null) ?? authenticate(req);
       if (!authUser) return err("Authentication required", 401);
-      const full = getUserById(authUser.id);
+      const full = await getUserById(authUser.id);
       const state = signOAuthState("calendar", authUser.id);
       return Response.redirect(getGoogleAuthUrl(state, full?.email));
     }
 
     const user = requireAuth(req);
-    const fullUser = getUserById(user.id);
+    const fullUser = await getUserById(user.id);
     const userEmail = fullUser?.email ?? user.email;
     const onTeam = isTeamMember(userEmail);
 
@@ -196,7 +193,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
           email: userEmail,
           displayName: fullUser?.displayName ?? user.displayName,
         },
-        googleConnected: isGoogleConnected(user.id),
+        googleConnected: await isGoogleConnected(user.id),
         isTeamMember: onTeam,
       });
     }
@@ -206,7 +203,6 @@ export async function handleApiRequest(req: Request): Promise<Response> {
       return err("Team access required — your email is not on TEAM_EMAILS", 403);
     }
 
-    // LinkedIn enrich (preview before save)
     if (path === "/api/contacts/enrich-linkedin" && req.method === "POST") {
       const body = await parseBody<{ url: string }>(req);
       if (!body.url) return err("LinkedIn URL required");
@@ -224,33 +220,33 @@ export async function handleApiRequest(req: Request): Promise<Response> {
       return json(parsed);
     }
 
-    // Contacts — private to user
     if (path === "/api/contacts" && req.method === "GET") {
-      return json(listContacts(user.id, url.searchParams.get("q") ?? undefined, url.searchParams.get("tag") ?? undefined));
+      return json(
+        await listContacts(user.id, url.searchParams.get("q") ?? undefined, url.searchParams.get("tag") ?? undefined),
+      );
     }
     if (path === "/api/contacts" && req.method === "POST") {
       const body = await parseBody<Partial<Contact>>(req);
       if (!body.name) return err("name required");
-      const created = createContact(user.id, user.username, body as Parameters<typeof createContact>[2]);
-      const synced = syncContactAndUserGoals(user.id, created);
+      const created = await createContact(user.id, user.username, body as Parameters<typeof createContact>[2]);
+      const synced = await syncContactAndUserGoals(user.id, created);
       if (synced.addedGoals.length > 0 || synced.contact.goalTags.length !== created.goalTags.length) {
-        const { saveContact } = await import("./db");
-        saveContact(synced.contact);
+        await saveContact(synced.contact);
       }
       const { contact, agent } = await enrichContactAfterSave(synced.contact, true);
-      backfillMeetingLinks(user.id);
-      refreshAdvisor(user.id);
+      await backfillMeetingLinks(user.id);
+      await refreshAdvisor(user.id);
       return json({ contact, agent }, 201);
     }
     if (path.match(/^\/api\/contacts\/[^/]+\/meetings$/) && req.method === "GET") {
       const id = path.split("/")[3];
-      if (!getContact(user.id, id)) return err("Not found", 404);
-      return json(listMeetingsForContact(user.id, id));
+      if (!(await getContact(user.id, id))) return err("Not found", 404);
+      return json(await listMeetingsForContact(user.id, id));
     }
     if (path.match(/^\/api\/contacts\/[^/]+\/conversations$/) && req.method === "GET") {
       const id = path.split("/")[3];
       try {
-        return json(getContactConversations(user.id, id, onTeam));
+        return json(await getContactConversations(user.id, id, onTeam));
       } catch (e) {
         return err(e instanceof Error ? e.message : "Error", 404);
       }
@@ -264,7 +260,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
         meetingId?: string;
       }>(req);
       try {
-        const conversation = createConversation(user.id, user.username, { ...body, contactId });
+        const conversation = await createConversation(user.id, user.username, { ...body, contactId });
         return json(conversation, 201);
       } catch (e) {
         return err(e instanceof Error ? e.message : "Error", 400);
@@ -272,32 +268,30 @@ export async function handleApiRequest(req: Request): Promise<Response> {
     }
     if (path.match(/^\/api\/contacts\/[^/]+$/) && req.method === "GET") {
       const id = path.split("/").pop()!;
-      const c = getContact(user.id, id);
+      const c = await getContact(user.id, id);
       return c ? json(c) : err("Not found", 404);
     }
     if (path.match(/^\/api\/contacts\/[^/]+$/) && req.method === "PATCH") {
       const id = path.split("/").pop()!;
       const body = await parseBody<Partial<Contact>>(req);
-      let updated = updateContact(user.id, id, body);
-      const synced = syncContactAndUserGoals(user.id, updated);
+      let updated = await updateContact(user.id, id, body);
+      const synced = await syncContactAndUserGoals(user.id, updated);
       if (synced.addedGoals.length > 0 || synced.contact.goalTags.length !== updated.goalTags.length) {
         updated = synced.contact;
-        const { saveContact } = await import("./db");
-        saveContact(updated);
+        await saveContact(updated);
       }
       const { contact, agent } = await enrichContactAfterSave(updated, false);
-      backfillMeetingLinks(user.id);
-      refreshAdvisor(user.id);
+      await backfillMeetingLinks(user.id);
+      await refreshAdvisor(user.id);
       return json({ contact, agent });
     }
     if (path.match(/^\/api\/contacts\/[^/]+$/) && req.method === "DELETE") {
-      deleteContact(user.id, path.split("/").pop()!);
+      await deleteContact(user.id, path.split("/").pop()!);
       return json({ ok: true });
     }
 
-    // Calendar
     if (path === "/api/calendar/status" && req.method === "GET") {
-      if (!isGoogleConnected(user.id)) {
+      if (!(await isGoogleConnected(user.id))) {
         return json({
           ok: false,
           calendarId: "",
@@ -309,37 +303,40 @@ export async function handleApiRequest(req: Request): Promise<Response> {
       return json(await probeGoogleCalendarAccess(user.id, fullUser?.email));
     }
     if (path === "/api/calendar/sync" && req.method === "POST") {
-      if (!isGoogleConnected(user.id)) {
+      if (!(await isGoogleConnected(user.id))) {
         return err("Connect Google Calendar first — go to Settings", 400);
       }
       return json(await syncGoogleCalendar(user.id, user.username, fullUser?.email));
     }
     if (path === "/api/calendar/link-suggestions" && req.method === "GET") {
-      return json({ suggestions: computeLinkSuggestions(user.id, true) });
+      return json({ suggestions: await computeLinkSuggestions(user.id, true) });
     }
     if (path === "/api/calendar/incomplete-profiles" && req.method === "GET") {
       const upcoming = url.searchParams.get("upcoming") !== "false";
-      return json({ suggestions: computeLinkSuggestions(user.id, upcoming) });
+      return json({ suggestions: await computeLinkSuggestions(user.id, upcoming) });
     }
     if (path === "/api/meetings/upcoming" && req.method === "GET") {
+      const meetings = await listMeetings(user.id, true);
       return json(
-        listMeetings(user.id, true).map((m) => ({
-          ...m,
-          teamAgendaCount: countTeamAgendaItems(m.id),
-        })),
+        await Promise.all(
+          meetings.map(async (m) => ({
+            ...m,
+            teamAgendaCount: await countTeamAgendaItems(m.id),
+          })),
+        ),
       );
     }
     if (path === "/api/meetings/past" && req.method === "GET") {
-      return json(listPastMeetings(user.id));
+      return json(await listPastMeetings(user.id));
     }
     if (path.match(/^\/api\/meetings\/[^/]+$/) && req.method === "GET") {
       const id = path.split("/").pop()!;
-      const m = getMeeting(user.id, id);
+      const m = await getMeeting(user.id, id);
       return m ? json(m) : err("Not found", 404);
     }
     if (path.match(/^\/api\/meetings\/[^/]+\/link-contact$/) && req.method === "POST") {
       const meetingId = path.split("/")[3];
-      const meeting = getMeeting(user.id, meetingId);
+      const meeting = await getMeeting(user.id, meetingId);
       if (!meeting) return err("Meeting not found", 404);
       const body = await parseBody<{
         personName: string;
@@ -350,29 +347,32 @@ export async function handleApiRequest(req: Request): Promise<Response> {
         company?: string;
       }>(req);
       if (!body.personName?.trim()) return err("personName required");
-      const result = linkPersonToMeeting(user.id, user.username, meeting, body);
+      const result = await linkPersonToMeeting(user.id, user.username, meeting, body);
       return json(result, result.created ? 201 : 200);
     }
     if (path.match(/^\/api\/meetings\/[^/]+\/prep$/) && req.method === "GET") {
       const id = path.split("/")[3];
-      const prep = getOrCreatePrep(user.id, id);
+      const prep = await getOrCreatePrep(user.id, id);
       return prep ? json(prep) : err("Not found", 404);
     }
     if (path.match(/^\/api\/meetings\/[^/]+\/team-agenda$/) && req.method === "GET") {
       const meetingId = path.split("/")[3];
-      if (!getMeeting(user.id, meetingId) && !getMeetingShared(meetingId)) {
+      if (!(await getMeeting(user.id, meetingId)) && !(await getMeetingShared(meetingId))) {
         return err("Meeting not found", 404);
       }
-      return json(getTeamAgenda(meetingId));
+      return json(await getTeamAgenda(meetingId));
     }
     if (path.match(/^\/api\/meetings\/[^/]+\/team-agenda\/suggest-tags$/) && req.method === "POST") {
       const body = await parseBody<{ text: string }>(req);
-      return json({ tags: suggestTagsForText(body.text ?? "", user.id), options: TEAM_AGENDA_TAG_OPTIONS });
+      return json({
+        tags: await suggestTagsForText(body.text ?? "", user.id),
+        options: TEAM_AGENDA_TAG_OPTIONS,
+      });
     }
     if (path.match(/^\/api\/meetings\/[^/]+\/team-agenda\/refine$/) && req.method === "POST") {
       const meetingId = path.split("/")[3];
       const refined = await refineTeamAgendaAsync(meetingId);
-      return json({ refined, ...getTeamAgenda(meetingId) });
+      return json({ refined, ...(await getTeamAgenda(meetingId)) });
     }
     if (path.match(/^\/api\/meetings\/[^/]+\/team-agenda$/) && req.method === "POST") {
       const meetingId = path.split("/")[3];
@@ -390,14 +390,14 @@ export async function handleApiRequest(req: Request): Promise<Response> {
     }
     if (path.match(/^\/api\/meetings\/[^/]+\/debrief$/) && req.method === "GET") {
       const id = path.split("/")[3];
-      return json(getDebrief(user.id, id) ?? null);
+      return json((await getDebrief(user.id, id)) ?? null);
     }
     if (path.match(/^\/api\/meetings\/[^/]+\/debrief$/) && req.method === "POST") {
       const meetingId = path.split("/")[3];
-      const meeting = getMeeting(user.id, meetingId);
+      const meeting = await getMeeting(user.id, meetingId);
       if (!meeting) return err("Meeting not found", 404);
       const body = await parseBody<Omit<Debrief, "meetingId" | "createdAt" | "ownerId">>(req);
-      const existing = getDebrief(user.id, meetingId);
+      const existing = await getDebrief(user.id, meetingId);
       const now = new Date().toISOString();
       const debrief: Debrief = {
         ...body,
@@ -406,17 +406,16 @@ export async function handleApiRequest(req: Request): Promise<Response> {
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
-      const contacts = meeting.contactIds
-        .map((id) => getContact(user.id, id))
-        .filter((c): c is Contact => c !== null);
-      saveDebrief(debrief, meeting, contacts, { replaceFollowUps: Boolean(existing) });
+      const contacts = (
+        await Promise.all(meeting.contactIds.map((id) => getContact(user.id, id)))
+      ).filter((c): c is Contact => c !== null);
+      await saveDebrief(debrief, meeting, contacts, { replaceFollowUps: Boolean(existing) });
       const { debrief: enriched, agent } = await enrichDebriefAfterSave(debrief, meeting, contacts);
       return json({ debrief: enriched, agent }, existing ? 200 : 201);
     }
 
-    // Conversations (offline chats — private or team-visible)
     if (path === "/api/conversations" && req.method === "GET") {
-      return json(getVisibleConversations(user.id, onTeam));
+      return json(await getVisibleConversations(user.id, onTeam));
     }
     if (path === "/api/conversations" && req.method === "POST") {
       const body = await parseBody<{
@@ -428,7 +427,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
         occurredAt?: string;
       }>(req);
       try {
-        const conversation = createConversation(user.id, user.username, body);
+        const conversation = await createConversation(user.id, user.username, body);
         return json(conversation, 201);
       } catch (e) {
         return err(e instanceof Error ? e.message : "Error", 400);
@@ -438,7 +437,7 @@ export async function handleApiRequest(req: Request): Promise<Response> {
       const id = path.split("/").pop()!;
       const body = await parseBody<Partial<Pick<Conversation, "notes" | "visibility" | "occurredAt">>>(req);
       try {
-        return json(updateConversation(user.id, id, body));
+        return json(await updateConversation(user.id, id, body));
       } catch (e) {
         return err(e instanceof Error ? e.message : "Error", 403);
       }
@@ -446,39 +445,37 @@ export async function handleApiRequest(req: Request): Promise<Response> {
     if (path.match(/^\/api\/conversations\/[^/]+$/) && req.method === "DELETE") {
       const id = path.split("/").pop()!;
       try {
-        removeConversation(user.id, id);
+        await removeConversation(user.id, id);
         return json({ ok: true });
       } catch (e) {
         return err(e instanceof Error ? e.message : "Error", 403);
       }
     }
 
-    // Follow-ups
     if (path === "/api/follow-ups" && req.method === "GET") {
-      return json(listFollowUps(user.id, true));
+      return json(await listFollowUps(user.id, true));
     }
     if (path.match(/^\/api\/follow-ups\/[^/]+$/) && req.method === "PATCH") {
       const id = path.split("/").pop()!;
       const body = await parseBody<Partial<FollowUp>>(req);
-      const all = listFollowUps(user.id, false);
+      const all = await listFollowUps(user.id, false);
       const fu = all.find((f) => f.id === id);
       if (!fu) return err("Not found", 404);
-      return json(saveFollowUp({ ...fu, ...body }));
+      return json(await saveFollowUp({ ...fu, ...body }));
     }
 
-    // Advisor
     if (path === "/api/advisor/suggestions" && req.method === "GET") {
-      return json(getSuggestions(user.id));
+      return json(await getSuggestions(user.id));
     }
     if (path === "/api/advisor/refresh" && req.method === "POST") {
-      return json(refreshAdvisor(user.id));
+      return json(await refreshAdvisor(user.id));
     }
     if (path.match(/^\/api\/advisor\/[^/]+\/dismiss$/) && req.method === "POST") {
-      dismissAdvisor(user.id, path.split("/")[3]);
+      await dismissAdvisor(user.id, path.split("/")[3]);
       return json({ ok: true });
     }
     if (path === "/api/advisor/goals" && req.method === "GET") {
-      const synced = syncGoalsFromNetwork(user.id);
+      const synced = await syncGoalsFromNetwork(user.id);
       return json({
         goals: synced.activeGoals,
         allGoals: synced.allGoals,
@@ -487,19 +484,19 @@ export async function handleApiRequest(req: Request): Promise<Response> {
     }
     if (path === "/api/advisor/goals" && req.method === "PATCH") {
       const body = await parseBody<{ goals: string[] }>(req);
-      setGoals(user.id, body.goals);
-      refreshAdvisor(user.id);
+      await setGoals(user.id, body.goals);
+      await refreshAdvisor(user.id);
       return json({
         goals: body.goals,
-        allGoals: getAllGoalOptions(user.id),
+        allGoals: await getAllGoalOptions(user.id),
         addedFromNetwork: [],
       });
     }
 
     if (path === "/api/meta" && req.method === "GET") {
       return json({
-        lastCalendarSync: getUserMeta(user.id, "lastCalendarSync"),
-        googleConnected: isGoogleConnected(user.id),
+        lastCalendarSync: await getUserMeta(user.id, "lastCalendarSync"),
+        googleConnected: await isGoogleConnected(user.id),
       });
     }
 

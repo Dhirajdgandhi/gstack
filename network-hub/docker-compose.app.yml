@@ -1,0 +1,34 @@
+# App server only — PostgreSQL runs on a DIFFERENT host (another EC2, RDS, etc.).
+# All DATABASE_* values come from .env — nothing is overridden here.
+#
+# On the APP EC2, set in .env:
+#   DATABASE_HOST=3.143.209.228    # DB EC2 public IP (or private IP if same VPC)
+#   DATABASE_PORT=5432
+#   DATABASE_USER=appuser
+#   DATABASE_PASSWORD=...
+#   DATABASE_NAME=myapp_db
+#
+# Initialize tables on the remote DB:
+#   docker compose -f docker-compose.app.yml run --rm db-init
+#
+# Start app:
+#   docker compose -f docker-compose.app.yml up -d --build
+
+services:
+  db-init:
+    build: .
+    env_file: .env
+    entrypoint: ["bun", "/app/docker/db-init.ts"]
+    restart: "no"
+
+  network-hub:
+    build: .
+    ports:
+      - "8787:8787"
+    env_file: .env
+    environment:
+      PORT: "8787"
+      APP_URL: ${APP_URL:-http://localhost:8787}
+      API_URL: ${API_URL:-http://localhost:8787}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8787/api/auth/google/callback}
+    restart: unless-stopped

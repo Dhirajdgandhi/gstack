@@ -1,17 +1,17 @@
-import { getContact, getMeeting, getMeetingPrep, getRefinedTeamAgenda, listContacts, saveMeetingPrep } from "../db";
+import { getContact, getMeeting, getMeetingPrep, getRefinedTeamAgenda, saveMeetingPrep } from "../db";
 import type { Contact, MeetingPrep } from "../types";
 
-export function buildMeetingPrep(userId: string, meetingId: string): MeetingPrep | null {
-  const meeting = getMeeting(userId, meetingId);
+export async function buildMeetingPrep(userId: string, meetingId: string): Promise<MeetingPrep | null> {
+  const meeting = await getMeeting(userId, meetingId);
   if (!meeting) return null;
 
-  const contacts = meeting.contactIds
-    .map((id) => getContact(userId, id))
-    .filter((c): c is Contact => c !== null);
+  const contacts = (
+    await Promise.all(meeting.contactIds.map((id) => getContact(userId, id)))
+  ).filter((c): c is Contact => c !== null);
 
   const topics: MeetingPrep["topics"] = [];
 
-  const refined = getRefinedTeamAgenda(meetingId);
+  const refined = await getRefinedTeamAgenda(meetingId);
   if (refined) {
     for (const section of refined.sections) {
       for (const item of section.items.slice(0, 3)) {
@@ -77,10 +77,10 @@ export function buildMeetingPrep(userId: string, meetingId: string): MeetingPrep
     generatedAt: new Date().toISOString(),
   };
 
-  saveMeetingPrep(prep);
+  await saveMeetingPrep(prep);
   return prep;
 }
 
-export function getOrCreatePrep(userId: string, meetingId: string): MeetingPrep | null {
-  return getMeetingPrep(userId, meetingId) ?? buildMeetingPrep(userId, meetingId);
+export async function getOrCreatePrep(userId: string, meetingId: string): Promise<MeetingPrep | null> {
+  return (await getMeetingPrep(userId, meetingId)) ?? (await buildMeetingPrep(userId, meetingId));
 }

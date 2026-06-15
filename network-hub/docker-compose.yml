@@ -1,15 +1,62 @@
+# Local dev with bundled Postgres in Docker (optional).
+# For app on one EC2 + Postgres on another EC2, use docker-compose.app.yml instead.
+#
+#   docker compose up -d --build
+#
+# Init/migrate only:
+#   docker compose run --rm db-init
+
 services:
-  network-hub:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: networkhub
+      POSTGRES_PASSWORD: networkhub
+      POSTGRES_DB: networkhub
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U networkhub -d networkhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  db-init:
     build: .
-    ports:
-      - "80:80"
     env_file: .env
     environment:
-      NETWORK_HUB_DATA: /data
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: networkhub
+      DATABASE_PASSWORD: networkhub
+      DATABASE_NAME: networkhub
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["bun", "/app/docker/db-init.ts"]
+    restart: "no"
+    profiles: ["init"]
+
+  network-hub:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8787:8787"
+    env_file: .env
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: networkhub
+      DATABASE_PASSWORD: networkhub
+      DATABASE_NAME: networkhub
       PORT: "8787"
-    volumes:
-      - network-hub-data:/data
+      APP_URL: ${APP_URL:-http://localhost:8787}
+      API_URL: ${API_URL:-http://localhost:8787}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8787/api/auth/google/callback}
     restart: unless-stopped
 
 volumes:
-  network-hub-data:
+  postgres-data:

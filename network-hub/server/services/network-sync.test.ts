@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { listContacts, saveMeeting } from "../db";
+import { ensureDb, listContacts, saveMeeting } from "../db";
 import { computeLinkSuggestions } from "./link-suggestions";
 import { ensureNetworkFromMeetings } from "./network-sync";
 
 describe("computeLinkSuggestions", () => {
-  test("flags incomplete profile when contact auto-added without LinkedIn", () => {
+  test("flags incomplete profile when contact auto-added without LinkedIn", async () => {
+    await ensureDb();
     const userId = `test-links-${Date.now()}`;
     const meetingId = `gcal-test-${Date.now()}`;
-    saveMeeting({
+    await saveMeeting({
       id: meetingId,
       ownerId: userId,
       title: "Meet with Ayushi",
@@ -22,7 +23,7 @@ describe("computeLinkSuggestions", () => {
       syncedAt: new Date().toISOString(),
     });
 
-    ensureNetworkFromMeetings(userId, "tester", [
+    await ensureNetworkFromMeetings(userId, "tester", [
       {
         id: meetingId,
         ownerId: userId,
@@ -39,15 +40,16 @@ describe("computeLinkSuggestions", () => {
       },
     ]);
 
-    const suggestions = computeLinkSuggestions(userId, true);
+    const suggestions = await computeLinkSuggestions(userId, true);
     expect(suggestions.some((s) => s.personName === "Ayushi" && s.contactId)).toBe(true);
     expect(suggestions.some((s) => s.missingFields?.includes("linkedin"))).toBe(true);
-    expect(listContacts(userId).some((c) => c.name === "Ayushi")).toBe(true);
+    expect((await listContacts(userId)).some((c) => c.name === "Ayushi")).toBe(true);
   });
 });
 
 describe("ensureNetworkFromMeetings", () => {
-  test("creates stub contact and links meeting", () => {
+  test("creates stub contact and links meeting", async () => {
+    await ensureDb();
     const userId = `test-net-${Date.now()}`;
     const meetingId = `gcal-net-${Date.now()}`;
     const meeting = {
@@ -65,11 +67,11 @@ describe("ensureNetworkFromMeetings", () => {
       syncedAt: new Date().toISOString(),
     };
 
-    const result = ensureNetworkFromMeetings(userId, "alice", [meeting]);
+    const result = await ensureNetworkFromMeetings(userId, "alice", [meeting]);
     expect(result.contactsCreated).toBeGreaterThanOrEqual(1);
     expect(result.meetingsLinked).toBeGreaterThanOrEqual(1);
 
-    const contacts = listContacts(userId);
+    const contacts = await listContacts(userId);
     const sam = contacts.find((c) => c.name.includes("Sam"));
     expect(sam?.autoCreated).toBe(true);
     expect(sam?.email).toBe("sam@example.com");

@@ -16,9 +16,9 @@ function findContactByName(contacts: Contact[], personName: string): Contact | u
   return partial.length === 1 ? partial[0] : undefined;
 }
 
-export function computeLinkSuggestions(userId: string, upcomingOnly = true): LinkSuggestion[] {
-  const contacts = listContacts(userId);
-  const meetings = listMeetings(userId, upcomingOnly);
+export async function computeLinkSuggestions(userId: string, upcomingOnly = true): Promise<LinkSuggestion[]> {
+  const contacts = await listContacts(userId);
+  const meetings = await listMeetings(userId, upcomingOnly);
   const suggestions: LinkSuggestion[] = [];
   const seen = new Set<string>();
 
@@ -58,24 +58,24 @@ export function computeLinkSuggestions(userId: string, upcomingOnly = true): Lin
   return suggestions.sort((a, b) => a.meetingStart.localeCompare(b.meetingStart));
 }
 
-export function linkPersonToMeeting(
+export async function linkPersonToMeeting(
   userId: string,
   username: string,
   meeting: Meeting,
   input: { personName: string; linkedin?: string; email?: string; contactId?: string; title?: string; company?: string },
-): { meeting: Meeting; contact: Contact; created: boolean } {
+): Promise<{ meeting: Meeting; contact: Contact; created: boolean }> {
   let contact: Contact | null = null;
   let created = false;
 
   if (input.contactId) {
-    contact = getContact(userId, input.contactId);
+    contact = await getContact(userId, input.contactId);
     if (!contact) throw new Error("Contact not found");
   } else {
-    contact = findContactByName(listContacts(userId), input.personName) ?? null;
+    contact = findContactByName(await listContacts(userId), input.personName) ?? null;
   }
 
   if (!contact) {
-    contact = createContact(userId, username, {
+    contact = await createContact(userId, username, {
       name: input.personName,
       linkedin: input.linkedin,
       email: input.email,
@@ -97,13 +97,13 @@ export function linkPersonToMeeting(
       patch.autoCreated = false;
     }
     if (Object.keys(patch).length > 0) {
-      contact = updateContact(userId, contact.id, patch);
+      contact = await updateContact(userId, contact.id, patch);
     }
   }
 
   const contactIds = [...new Set([...meeting.contactIds, contact.id])];
   const updated: Meeting = { ...meeting, contactIds };
-  saveMeeting(updated);
+  await saveMeeting(updated);
 
   return { meeting: updated, contact, created };
 }

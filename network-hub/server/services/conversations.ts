@@ -1,14 +1,14 @@
 import {
   deleteConversation,
+  getContact,
   getConversation,
   listConversationsForContact,
   listConversationsForUser,
   saveConversation,
 } from "../db";
-import { getContact } from "../db";
 import type { Conversation } from "../types";
 
-export function createConversation(
+export async function createConversation(
   userId: string,
   username: string,
   input: {
@@ -19,12 +19,12 @@ export function createConversation(
     visibility?: Conversation["visibility"];
     occurredAt?: string;
   },
-): Conversation {
+): Promise<Conversation> {
   if (!input.notes?.trim()) throw new Error("Notes required");
   if (!input.contactId && !input.personName?.trim()) {
     throw new Error("contactId or personName required");
   }
-  if (input.contactId && !getContact(userId, input.contactId)) {
+  if (input.contactId && !(await getContact(userId, input.contactId))) {
     throw new Error("Contact not found");
   }
 
@@ -45,12 +45,12 @@ export function createConversation(
   return saveConversation(conversation);
 }
 
-export function updateConversation(
+export async function updateConversation(
   userId: string,
   id: string,
   patch: Partial<Pick<Conversation, "notes" | "visibility" | "occurredAt">>,
-): Conversation {
-  const existing = getConversation(id);
+): Promise<Conversation> {
+  const existing = await getConversation(id);
   if (!existing) throw new Error("Conversation not found");
   if (existing.addedByUserId !== userId) throw new Error("Only the author can edit this conversation");
 
@@ -63,18 +63,22 @@ export function updateConversation(
   return saveConversation(updated);
 }
 
-export function removeConversation(userId: string, id: string): void {
-  const existing = getConversation(id);
+export async function removeConversation(userId: string, id: string): Promise<void> {
+  const existing = await getConversation(id);
   if (!existing) throw new Error("Conversation not found");
   if (existing.addedByUserId !== userId) throw new Error("Only the author can delete this conversation");
-  deleteConversation(id);
+  await deleteConversation(id);
 }
 
-export function getContactConversations(userId: string, contactId: string, canSeeTeam: boolean): Conversation[] {
-  if (!getContact(userId, contactId)) throw new Error("Contact not found");
+export async function getContactConversations(
+  userId: string,
+  contactId: string,
+  canSeeTeam: boolean,
+): Promise<Conversation[]> {
+  if (!(await getContact(userId, contactId))) throw new Error("Contact not found");
   return listConversationsForContact(userId, contactId, canSeeTeam);
 }
 
-export function getVisibleConversations(userId: string, canSeeTeam: boolean): Conversation[] {
+export async function getVisibleConversations(userId: string, canSeeTeam: boolean): Promise<Conversation[]> {
   return listConversationsForUser(userId, canSeeTeam);
 }

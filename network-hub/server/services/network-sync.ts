@@ -27,12 +27,12 @@ function findContactByEmail(contacts: Contact[], email: string): Contact | undef
   return contacts.find((c) => c.email?.toLowerCase() === lower);
 }
 
-function ensureContact(
+async function ensureContact(
   userId: string,
   username: string,
   contacts: Contact[],
   input: { name: string; email?: string; knownVia: string },
-): { contact: Contact; created: boolean; contacts: Contact[] } {
+): Promise<{ contact: Contact; created: boolean; contacts: Contact[] }> {
   let contact =
     (input.email ? findContactByEmail(contacts, input.email) : undefined) ??
     findContactByName(contacts, input.name);
@@ -42,13 +42,13 @@ function ensureContact(
     if (input.email && !contact.email) patch.email = input.email;
     if (!contact.knownVia) patch.knownVia = input.knownVia;
     if (Object.keys(patch).length > 0) {
-      contact = updateContact(userId, contact.id, patch);
+      contact = await updateContact(userId, contact.id, patch);
       contacts = contacts.map((c) => (c.id === contact!.id ? contact! : c));
     }
     return { contact, created: false, contacts };
   }
 
-  contact = createContact(userId, username, {
+  contact = await createContact(userId, username, {
     name: input.name,
     email: input.email,
     knownVia: input.knownVia,
@@ -66,14 +66,14 @@ function linkContactToMeeting(meeting: Meeting, contactId: string): boolean {
 }
 
 /** Auto-add meeting people to network and link every meeting ↔ contact. */
-export function ensureNetworkFromMeetings(
+export async function ensureNetworkFromMeetings(
   userId: string,
   username: string,
   meetings: Meeting[],
-): NetworkSyncResult {
+): Promise<NetworkSyncResult> {
   let contactsCreated = 0;
   let meetingsLinked = 0;
-  let contacts = listContacts(userId);
+  let contacts = await listContacts(userId);
 
   for (const meeting of meetings) {
     const personNames = meeting.attendeeNames?.length
@@ -86,7 +86,7 @@ export function ensureNetworkFromMeetings(
         const stub = nameFromEmail(e);
         return namesMatch(stub, personName);
       });
-      const result = ensureContact(userId, username, contacts, {
+      const result = await ensureContact(userId, username, contacts, {
         name: personName,
         email,
         knownVia,
@@ -106,7 +106,7 @@ export function ensureNetworkFromMeetings(
       const matchedByName = personNames.some((n) => namesMatch(n, nameFromEmail(email)));
       if (matchedByName) continue;
 
-      const result = ensureContact(userId, username, contacts, {
+      const result = await ensureContact(userId, username, contacts, {
         name: nameFromEmail(email),
         email,
         knownVia,
@@ -116,10 +116,10 @@ export function ensureNetworkFromMeetings(
       if (linkContactToMeeting(meeting, result.contact.id)) meetingsLinked++;
     }
 
-    saveMeeting(meeting);
+    await saveMeeting(meeting);
   }
 
-  const backfill = backfillMeetingLinks(userId, contacts);
+  const backfill = await backfillMeetingLinks(userId, contacts);
   return {
     contactsCreated,
     meetingsLinked: meetingsLinked + backfill,
@@ -127,8 +127,9 @@ export function ensureNetworkFromMeetings(
 }
 
 /** Link every contact to all meetings where email or name matches. */
-export function backfillMeetingLinks(userId: string, contacts = listContacts(userId)): number {
-  const allMeetings = listMeetings(userId, false);
+export async function backfillMeetingLinks(userId: string, contacts?: Contact[]): Promise<number> {
+  const contactList = contacts ?? (await listContacts(userId));
+  const allMeetings = await listMeetings(userId, false);
   let linked = 0;
 
   for (const meeting of allMeetings) {
@@ -137,7 +138,7 @@ export function backfillMeetingLinks(userId: string, contacts = listContacts(use
       : collectMeetingPersonNames(meeting.title, []);
     let changed = false;
 
-    for (const contact of contacts) {
+    for (const contact of contactList) {
       const emailHit =
         contact.email && meeting.attendeeEmails.some((e) => e.toLowerCase() === contact.email!.toLowerCase());
       const nameHit = personNames.some((n) => namesMatch(contact.name, n));
@@ -148,17 +149,17 @@ export function backfillMeetingLinks(userId: string, contacts = listContacts(use
       }
     }
 
-    if (changed) saveMeeting(meeting);
+    if (changed) await saveMeeting(meeting);
   }
 
   return linked;
 }
 
-export function listMeetingsForContact(userId: string, contactId: string): Meeting[] {
-  const contact = listContacts(userId).find((c) => c.id === contactId);
+export async function listMeetingsForContact(userId: string, contactId: string): Promise<Meeting[]> {
+  const contact = (await listContacts(userId)).find((c) => c.id === contactId);
   if (!contact) return [];
 
-  return listMeetings(userId, false)
+  return (await listMeetings(userId, false))
     .filter((m) => m.contactIds.includes(contactId))
     .sort((a, b) => b.start.localeCompare(a.start));
 }

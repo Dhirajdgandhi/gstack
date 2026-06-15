@@ -2,7 +2,7 @@ import { getContact, saveContact } from "../db";
 import type { Contact } from "../types";
 import { normalizeLinkedInUrl } from "./linkedin-enrich";
 
-export function createContact(
+export async function createContact(
   ownerId: string,
   addedByUsername: string,
   input: {
@@ -23,7 +23,7 @@ export function createContact(
     isPrivate?: boolean;
     autoCreated?: boolean;
   },
-): Contact {
+): Promise<Contact> {
   const now = new Date().toISOString();
   const contact: Contact = {
     id: crypto.randomUUID(),
@@ -54,8 +54,8 @@ export function createContact(
   return saveContact(contact);
 }
 
-export function updateContact(ownerId: string, id: string, patch: Partial<Contact>): Contact {
-  const existing = getContact(ownerId, id);
+export async function updateContact(ownerId: string, id: string, patch: Partial<Contact>): Promise<Contact> {
+  const existing = await getContact(ownerId, id);
   if (!existing) throw new Error("Contact not found");
 
   const updated: Contact = {

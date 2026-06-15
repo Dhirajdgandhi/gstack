@@ -1,14 +1,86 @@
 # Deploy Network Hub on Ubuntu (Lightsail + Docker)
 
-Single-container deploy: **nginx** serves the React app and proxies `/api/*` to **Bun**. SQLite lives on a Docker volume at `/data/data.db`.
+Single-container deploy: **nginx** serves the React app and proxies `/api/*` to **Bun**. Data lives in **PostgreSQL**.
 
-## Architecture
+## Database initialization (Docker)
+
+Tables are created automatically — no manual SQL.
+
+| Setup | Command |
+|-------|---------|
+| **App EC2 → remote DB EC2** | `docker compose -f docker-compose.app.yml run --rm db-init` |
+| **Auto on app start** | entrypoint runs migrations before API starts |
+| **Local dev + bundled Postgres** | `docker compose up -d --build` |
+
+## Architecture (two EC2 instances)
 
 ```
-https://your-domain.com/          → nginx → web/dist (static)
-https://your-domain.com/api/*     → nginx → Bun :8787
-/var/lib/docker/.../network-hub-data → SQLite (persists across redeploys)
+App EC2 (this server)              DB EC2 (3.143.209.228)
+┌─────────────────────────┐         ┌──────────────────────┐
+│ Docker: network-hub     │  :5432  │ PostgreSQL           │
+│ nginx :80 → Bun API     │ ──────► │ myapp_db / appuser   │
+└─────────────────────────┘         └──────────────────────┘
 ```
+
+Use `docker-compose.app.yml` — it reads `DATABASE_HOST` from `.env` and does **not** run Postgres locally.
+
+## Remote database wiring
+
+**On the DB EC2** (Postgres server):
+
+1. Security group — allow inbound **TCP 5432** from the **App EC2 security group** (best) or App EC2 private IP.
+2. `postgresql.conf` — `listen_addresses = '*'` (or the private IP).
+3. `pg_hba.conf` — e.g. `host myapp_db appuser APP_EC2_PRIVATE_IP/32 scram-sha-256`
+4. `sudo systemctl restart postgresql`
+
+**On the App EC2** (this server), in `.env`:
+
+```bash
+DATABASE_HOST=3.143.209.228      # DB EC2 IP (use private IP if same VPC)
+DATABASE_PORT=5432
+DATABASE_USER=appuser
+DATABASE_PASSWORD=your-password
+DATABASE_NAME=myapp_db
+
+APP_URL=http://APP_EC2_PUBLIC_IP
+API_URL=http://APP_EC2_PUBLIC_IP
+GOOGLE_REDIRECT_URI=http://APP_EC2_PUBLIC_IP/api/auth/google/callback
+JWT_SECRET=long-random-string
+```
+
+**Initialize tables on the remote DB from App EC2:**
+
+```bash
+cd network-hub
+docker compose -f docker-compose.app.yml run --rm db-init
+```
+
+**Start the app:**
+
+```bash
+docker compose -f docker-compose.app.yml up -d --build
+```
+
+**Verify** (on DB EC2 or from App EC2 if 5432 is open to you):
+
+```bash
+PGPASSWORD='...' psql -h 3.143.209.228 -U appuser -d myapp_db -c '\dt'
+curl http://localhost/api/health
+```
+
+---
+
+## Local dev (optional bundled Postgres)
+
+`docker-compose.yml` includes a Postgres container for local testing only:
+
+```
+DATABASE_HOST=postgres   # set by compose, not for remote EC2 setup
+```
+
+Same variable names — only `DATABASE_HOST` changes between environments.
+
+## Architecture (single-server bundled Postgres — dev only)
 
 ## 1. Lightsail instance
 
@@ -84,11 +156,17 @@ Enable the **Google Calendar API** for calendar sync.
 
 ## 6. Build and run
 
+**App EC2 → remote DB EC2** (your setup):
+
 ```bash
-cd network-hub
+docker compose -f docker-compose.app.yml run --rm db-init
+docker compose -f docker-compose.app.yml up -d --build
+```
+
+**Local dev with bundled Postgres:**
+
+```bash
 docker compose up -d --build
-docker compose ps
-docker compose logs -f
 ```
 
 Verify:
@@ -110,8 +188,8 @@ docker compose up -d --build
 # Logs
 docker compose logs -f network-hub
 
-# Backup SQLite
-docker compose exec network-hub cat /data/data.db > backup-$(date +%F).db
+# Backup: pg_dump from postgres container
+docker compose exec postgres pg_dump -U networkhub networkhub > backup-$(date +%F).sql
 
 # Stop (data volume is preserved)
 docker compose down

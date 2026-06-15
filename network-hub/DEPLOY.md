@@ -20,6 +20,7 @@ Set in Vercel → Project → Settings → Environment Variables:
 
 | Variable | Required | Notes |
 |----------|----------|--------|
+| `DATABASE_URL` | **Yes** | Or use `DATABASE_HOST` + `DATABASE_USER` + `DATABASE_PASSWORD` + `DATABASE_NAME` |
 | `JWT_SECRET` | **Yes** | Long random string; sessions won't survive without it |
 | `GOOGLE_CLIENT_ID` | **Yes** | OAuth Web client — used for Sign-In + Calendar |
 | `GOOGLE_CLIENT_SECRET` | **Yes** | |
@@ -63,17 +64,16 @@ Vercel's default build ran `bun run build`, but **Bun isn't guaranteed on the bu
 - `package.json` `build` → `npm run build --prefix web` (Node + npm only)
 - `vercel.json` pins install/build commands
 
-## 5. Data persistence (important)
+## 5. Data persistence
 
-On Vercel, SQLite lives under `/tmp/network-hub` (ephemeral). **Data may reset** when serverless functions cold-start or redeploy.
+Network Hub uses **PostgreSQL**. Set `DATABASE_URL` or `DATABASE_HOST` / `DATABASE_USER` / `DATABASE_PASSWORD` / `DATABASE_NAME` in Vercel env vars.
 
-For production persistence, plan one of:
+Same variable names for local dev, Docker, and AWS RDS — only `DATABASE_HOST` changes (e.g. `localhost` vs `your-db.region.rds.amazonaws.com`).
 
-- [Vercel Blob](https://vercel.com/docs/storage/vercel-blob) + sync DB file
-- [Turso](https://turso.tech/) (libSQL) — future migration
-- Run the API on a long-lived host (Fly.io, Railway) and deploy **frontend-only** to Vercel with `API_URL` pointing at that host
-
-For demos and personal use, `/tmp` is fine; set `JWT_SECRET` and re-create accounts after redeploys if needed.
+```bash
+# Local example
+DATABASE_URL=postgresql://networkhub:networkhub@localhost:5432/networkhub
+```
 
 ## 6. Troubleshooting Google login 404
 
@@ -98,7 +98,7 @@ If Google login still fails after deploy:
 | | Local | Vercel |
 |---|--------|--------|
 | Frontend | `web` Vite :5173 | Static `web/dist` |
-| API | `bun run dev:server` :8787 | `api/[[...path]].ts` Bun function |
-| Database | `~/.network-hub/data.db` | `/tmp/network-hub/data.db` |
+| API | `bun run dev:server` :8787 | `api/index.ts` Bun function |
+| Database | PostgreSQL (`DATABASE_*` env) | PostgreSQL (`DATABASE_*` env) |
 
 Local dev unchanged: `bun run dev`.

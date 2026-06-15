@@ -124,7 +124,7 @@ export async function enrichContactAfterSave(
   contact: Contact,
   isNew: boolean,
 ): Promise<{ contact: Contact; agent: AgentResult }> {
-  const goals = getGoals(contact.ownerId);
+  const goals = await getGoals(contact.ownerId);
   const ai = await callOpenAIJson<ContactEnrichment>(
     `You help maintain a personal CRM. Return JSON only with keys: suggestedTags (string[]), profileSummary (string), goalTags (string[]), notesAppend (string), message (string).
 Only suggest fields that are missing or thin. Never invent facts not supported by the input. Use existing tags as-is; only add new relevant ones.`,
@@ -169,14 +169,14 @@ Only suggest fields that are missing or thin. Never invent facts not supported b
   }
 
   patched.updatedAt = new Date().toISOString();
-  let saved = applied.length > 0 ? saveContact(patched) : contact;
+  let saved = applied.length > 0 ? await saveContact(patched) : contact;
 
-  const synced = syncContactAndUserGoals(contact.ownerId, saved);
+  const synced = await syncContactAndUserGoals(contact.ownerId, saved);
   if (
     synced.addedGoals.length > 0 ||
     synced.contact.goalTags.length > saved.goalTags.length
   ) {
-    saved = saveContact(synced.contact);
+    saved = await saveContact(synced.contact);
     if (synced.addedGoals.length > 0) {
       applied.push({
         field: "userGoals",
@@ -247,7 +247,7 @@ Only fill missing fields from provided notes/learnings. Do not invent people or 
   }
 
   if (applied.length > 0) {
-    saveDebrief(patched, meeting, contacts, { replaceFollowUps: true });
+    await saveDebrief(patched, meeting, contacts, { replaceFollowUps: true });
   }
 
   return {
