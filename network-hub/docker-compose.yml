@@ -1,0 +1,15 @@
+services:
+  network-hub:
+    build: .
+    ports:
+      - "80:80"
+    env_file: .env
+    environment:
+      NETWORK_HUB_DATA: /data
+      PORT: "8787"
+    volumes:
+      - network-hub-data:/data
+    restart: unless-stopped
+
+volumes:
+  network-hub-data:

@@ -65,7 +65,17 @@ web/      React + Vite — dashboard, network, advisor, settings
 cli/      network-hub.ts — terminal entrypoint
 ```
 
-Data: `~/.network-hub/data.db` (local) · `/tmp/network-hub` on Vercel (ephemeral — see [DEPLOY.md](./DEPLOY.md))
+Data: `~/.network-hub/data.db` (local) · `/tmp/network-hub` on Vercel (ephemeral) · `/data/data.db` in Docker (persistent volume)
+
+## Deploy on Ubuntu / Lightsail (Docker)
+
+See **[DEPLOY-LIGHTSAIL.md](./DEPLOY-LIGHTSAIL.md)** — recommended for production persistence.
+
+```bash
+cd network-hub
+cp .env.example .env   # set APP_URL, API_URL, JWT_SECRET, Google OAuth, TEAM_EMAILS
+docker compose up -d --build
+```
 
 ## Deploy on Vercel
 
